@@ -1,5 +1,7 @@
 # RoboChess / Nibbler
 
+Español abajo. English instructions: [README-EN.md](README-EN.md).
+
 Programa de estudio y entrenamiento de ajedrez para Windows. Tablero, motores UCI, libro de aperturas, puzzles, perfiles, torneo local contra la computadora y sonidos de partida.
 
 Esta carpeta es el programa completo: código, piezas, puzzles de Lucas Chess, libro Polyglot, tablas Gaviota y el motor Crafty. No hace falta bajar otra cosa para abrirlo, salvo Python y, si quieres el motor fuerte, Stockfish.
