@@ -1,0 +1,14 @@
+--- work/Crafty-master/src/main.c	2020-02-01 06:54:04.000000000 -0800
++++ work/crafty-fixed/main.c	2026-09-26 18:56:55.344199589 -0700
+@@ -4584,10 +4584,7 @@
+       display = tree->position;
+       move = 0;
+       presult = 0;
+-      if (xboard_done == 0 && xboard) {
+-        xboard_done = 1;
+-        Print(-1, "feature done=1\n");
+-      }
++      /* Wait for protover 2 to finish feature negotiation. */
+       do {
+         if (presult != 2)
+           presult = 0;
