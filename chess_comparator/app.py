@@ -50,6 +50,7 @@ try:
     import training_resources
     import quad_tournament
     import lichess_puzzles
+    import personalities
     from locale_ui import LABELS, SPANISH, choose
 except Exception:
     _fatal('RoboChess no pudo importar módulos', traceback.format_exc())
@@ -87,6 +88,7 @@ class App:
                     'RoboChess':next((p for p in (os.path.join(ROOT,'robbochess','RoboChess-x64.exe'),os.path.join(ROOT,'robbochess','RoboChess.exe')) if os.path.isfile(p)),'')}
         self.images={}; self.square=70;self.flipped=False;self.playing=False;self.play_busy=False;self._fitting_board=False
         self.play_events=queue.Queue();self.human_color=chess.WHITE;self.game_engine_name='Stockfish'
+        self.personality=None;self.personality_launch=False;self.personality_images={}
         self.coach_events=queue.Queue();self.coach_generation=0;self.feedback_pending=False
         self.coach_enabled=tk.BooleanVar(value=False);self.coach_images={}
         self.profile_data=profile_store.load();self.profile=profile_store.find(self.profile_data,self.profile_data.get('active'))
@@ -286,6 +288,7 @@ class App:
         edit.add_command(label='Reiniciar tablero / Reset board',command=self.reset)
         game=tk.Menu(bar,tearoff=0);bar.add_cascade(label='Partida / Game',menu=game)
         game.add_command(label='Configurar partida… / Game setup…',command=self.game_setup_dialog)
+        game.add_command(label='Personalities…',command=self.personalities_dialog)
         game.add_command(label='Nueva partida / New game',command=self.start_game)
         game.add_command(label='Terminar / End game',command=self.end_game)
         game.add_separator()
@@ -1516,8 +1519,78 @@ class App:
             self.status.set(self.T('PGN del torneo guardado: ','Tournament PGN saved: ')+path)
         ttk.Button(bar,text=self.T('Guardar todas las partidas PGN','Save all games as PGN'),command=save_all).pack(side='left',padx=6)
         ttk.Label(frame,text=self.T('Doble clic en una fila para cargarla en el tablero y pulsar Analizar.','Double-click a row to load it on the board, then press Analyze.')).pack(anchor='w')
+    def personalities_dialog(self):
+        players=personalities.PLAYERS
+        dialog=tk.Toplevel(self.w)
+        dialog.title('Personalities')
+        dialog.transient(self.w);dialog.grab_set();dialog.geometry('860x560')
+        dialog.configure(bg='#f4f5f7')
+        selected={'player':players[2]}
+        left=ttk.Frame(dialog);left.pack(side='left',fill='both',expand=True,padx=8,pady=8)
+        canvas=tk.Canvas(left,width=390,highlightthickness=0,bg='#f4f5f7')
+        scroll=ttk.Scrollbar(left,orient='vertical',command=canvas.yview)
+        grid=ttk.Frame(canvas)
+        grid.bind('<Configure>',lambda e:canvas.configure(scrollregion=canvas.bbox('all')))
+        canvas.create_window((0,0),window=grid,anchor='nw')
+        canvas.configure(yscrollcommand=scroll.set)
+        canvas.pack(side='left',fill='both',expand=True);scroll.pack(side='right',fill='y')
+        right=ttk.Frame(dialog);right.pack(side='right',fill='y',padx=12,pady=12)
+        portrait=ttk.Label(right);portrait.pack()
+        name_var=tk.StringVar();title_var=tk.StringVar();info_var=tk.StringVar()
+        ttk.Label(right,textvariable=name_var,font=('Segoe UI',16,'bold')).pack(anchor='w',pady=(10,0))
+        ttk.Label(right,textvariable=title_var,wraplength=400).pack(anchor='w')
+        ttk.Label(right,textvariable=info_var,justify='left').pack(anchor='w',pady=8)
+        def load_image(path,max_size):
+            if not path:return None
+            key=(path,max_size)
+            if key in self.personality_images:return self.personality_images[key]
+            image=tk.PhotoImage(file=path)
+            factor=max(1,math.ceil(max(image.width(),image.height())/max_size))
+            image=image.subsample(factor,factor)
+            self.personality_images[key]=image
+            return image
+        cards={}
+        def show(player):
+            selected['player']=player
+            for pid,card in cards.items():
+                card.configure(relief='solid' if pid==player['id'] else 'flat',borderwidth=2 if pid==player['id'] else 1)
+            photo=load_image(personalities.portrait_path(player),420)
+            if photo:portrait.configure(image=photo)
+            book=personalities.book_path(player)
+            name_var.set(player['name']);title_var.set(player['title'])
+            info_var.set(f"Elo  {player['elo']}\nBook  {player['id']}.bin"+( '' if book else '  (missing)') )
+        for index,player in enumerate(players):
+            card=tk.Frame(grid,bd=1,relief='flat',bg='white',highlightbackground='#d0d4da',highlightthickness=1)
+            card.grid(row=index//3,column=index%3,padx=6,pady=6)
+            thumb=load_image(personalities.thumb_path(player),132)
+            label=tk.Label(card,image=thumb,bg='white',cursor='hand2') if thumb else tk.Label(card,text=player['id'][:1],width=8,height=4,bg='white')
+            label.pack()
+            tk.Label(card,text=player['id'],bg='white',font=('Segoe UI',9)).pack()
+            label.bind('<Button-1>',lambda e,p=player:show(p))
+            card.bind('<Button-1>',lambda e,p=player:show(p))
+            cards[player['id']]=card
+        show(players[2])
+        buttons=ttk.Frame(dialog);buttons.pack(side='bottom',fill='x',padx=12,pady=10)
+        def play(color):
+            player=selected['player']
+            if not self.paths.get(self.play_engine.get()):
+                messagebox.showinfo('Personalities',self.T('Selecciona primero un motor en Motores.','Select an engine under Engines first.'))
+                return
+            self.personality=player
+            self.personality_book=personalities.book_path(player)
+            self.personality_launch=True
+            self.play_color.set(color)
+            self.target_elo.set(str(player['elo']))
+            dialog.destroy()
+            self.start_game()
+        ttk.Button(buttons,text='Play as White',command=lambda:play('White')).pack(side='left',padx=4)
+        ttk.Button(buttons,text='Play as Black',command=lambda:play('Black')).pack(side='left',padx=4)
+        ttk.Button(buttons,text='Cancel',command=dialog.destroy).pack(side='right',padx=4)
+        dialog.wait_window()
     def start_game(self):
         if self.quad and not self.quad_launch:self.quad=None
+        if not self.personality_launch:self.personality=None;self.personality_book=None
+        self.personality_launch=False
         name=self.play_engine.get();path=self.paths.get(name)
         if not path:
             self.status.set(f'Select a {name} executable first.');return
@@ -1541,8 +1614,11 @@ class App:
             match=f"{opponent['name']} (Elo {opponent['rating']})"
             self.status.set(f"Quad · ronda {self.quad['current_round']+1}/3 · {match}. "+self.T('Te toca mover.','Your move.') if self.human_color==chess.WHITE else f"Quad · ronda {self.quad['current_round']+1}/3 · {match}. "+self.T('El motor piensa…','The engine is thinking…'))
         else:
-            self.status.set(self.T(f'Jugando contra {name}, nivel {level}. Te toca mover.',f'Playing against {name}, level {level}. Your turn.') if self.human_color==chess.WHITE else self.T(f'Jugando contra {name}, nivel {level}. El motor piensa…',f'Playing against {name}, level {level}. Engine thinking…'))
-        self.opponent_image.configure(image=self.coach_images[name]);self.mood.set(self.T(f'{name}: 😐 listo para jugar',f'{name}: 😐 ready to play'))
+            who=self.personality['name'] if self.personality else name
+            self.status.set(self.T(f'Jugando contra {who}, nivel {level}. Te toca mover.',f'Playing against {who}, level {level}. Your turn.') if self.human_color==chess.WHITE else self.T(f'Jugando contra {who}, nivel {level}. El motor piensa…',f'Playing against {who}, level {level}. Engine thinking…'))
+        photo=self.personality_images.get((personalities.portrait_path(self.personality),420)) if self.personality else None
+        self.opponent_image.configure(image=photo or self.coach_images[name])
+        self.mood.set(f"{self.personality['name']}: Elo {self.personality['elo']}" if self.personality else self.T(f'{name}: 😐 listo para jugar',f'{name}: 😐 ready to play'))
         if self.coach_enabled.get():self.show_tools_view();self.tabs.select(self.tutor_tab)
         self.draw()
         if self.human_color==chess.BLACK:self.w.after(100,self.computer_turn)
@@ -1552,14 +1628,14 @@ class App:
         path=filedialog.asksaveasfilename(defaultextension='.pgn',filetypes=[('PGN','*.pgn')])
         if not path:return
         game=chess.pgn.Game.from_board(self.board)
-        game.headers['Event']='Quad training tournament' if self.quad else 'Game vs chess engine'
+        game.headers['Event']='Personality game' if self.personality else ('Quad training tournament' if self.quad else 'Game vs chess engine')
         game.headers['TimeControl']=self.pgn_time_control()
         game.headers['TimeMode']=self.time_control.get()
         if self.quad:game.headers['Round']=str(self.quad.get('current_round',0)+1)
         if self.final_result:game.headers['Result']=self.final_result
         name=self.game_engine_name
         human_name=(self.profile or {}).get('name','Human')
-        opponent_name=name
+        opponent_name=self.personality['name'] if self.personality else name
         if self.quad:
             opponent=self.quad['players'][self.quad.get('current_opponent',1)]
             opponent_name=f"{opponent['name']} (Elo {opponent['rating']}) · {name}"
@@ -1641,6 +1717,13 @@ class App:
     def computer_turn(self):
         if not self.playing or self.play_busy or self.board.turn==self.human_color:return
         if self.board.is_game_over(claim_draw=True):self.status.set(f'Game over: {self.board.result(claim_draw=True)}');return
+        book=getattr(self,'personality_book',None)
+        if self.personality and book:
+            move=personalities.book_move(book,self.board)
+            if move:
+                self.play_events.put((self.epoch,move,None))
+                self.status.set(self.T(f"{self.personality['name']} juega de su libro.","{name} plays from the opening book.").format(name=self.personality['name']))
+                return
         self.start_clock(self.board.turn)
         name=self.game_engine_name;path=self.paths.get(name)
         try:level=int(self.target_elo.get());seconds=int(self.move_seconds.get())

@@ -38,6 +38,7 @@ if exist robbochess set "DATA=%DATA% --add-data robbochess;robbochess"
 if exist Crafty-UCI.bat set "DATA=%DATA% --add-data Crafty-UCI.bat;."
 if exist avatars set "DATA=%DATA% --add-data avatars;avatars"
 if exist sounds set "DATA=%DATA% --add-data sounds;sounds"
+if exist personalities set "DATA=%DATA% --add-data personalities;personalities"
 
 echo.
 echo Empaquetando (modo carpeta, mas estable con motores y assets)...
@@ -49,7 +50,7 @@ echo.
   --hidden-import chess.polyglot --hidden-import chess.gaviota --hidden-import chess.svg ^
   --hidden-import profile_store --hidden-import board_settings --hidden-import training_resources ^
   --hidden-import quad_tournament --hidden-import lichess_puzzles --hidden-import locale_ui ^
-  --hidden-import crafty_uci --collect-all tkinter %DATA% app.py
+  --hidden-import personalities --hidden-import crafty_uci --collect-all tkinter %DATA% app.py
 
 if %errorlevel% neq 0 (
   echo.
