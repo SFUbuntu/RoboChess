@@ -1,4 +1,4 @@
-# RoboChess / Nibbler
+# RoboChess 
 
 English instructions. Instrucciones en español: [README-ES.md](README-ES.md).
 
