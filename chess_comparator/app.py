@@ -2164,7 +2164,7 @@ def show_splash(root):
         splash.attributes('-alpha',1.0)
     except tk.TclError:
         pass
-    width,height=640,760
+    width,height=1100,700
     screen_w=splash.winfo_screenwidth(); screen_h=splash.winfo_screenheight()
     splash.geometry(f'{width}x{height}+{(screen_w-width)//2}+{(screen_h-height)//2}')
     holder={'image':None}
@@ -2172,14 +2172,13 @@ def show_splash(root):
         try:
             from PIL import Image, ImageTk
             image=Image.open(logo_path).convert('RGBA')
-            image.thumbnail((520,620), Image.Resampling.LANCZOS)
+            image.thumbnail((1040,640), Image.Resampling.LANCZOS)
             holder['image']=ImageTk.PhotoImage(image)
-            tk.Label(splash,image=holder['image'],bg='black').pack(pady=(36,8))
+            tk.Label(splash,image=holder['image'],bg='black').pack()
         except Exception:
             tk.Label(splash,text='ROBOCHESS',fg='#3ad0ff',bg='black',font=('Arial',28,'bold')).pack(pady=80)
     else:
         tk.Label(splash,text='ROBOCHESS',fg='#3ad0ff',bg='black',font=('Arial',28,'bold')).pack(pady=80)
-    tk.Label(splash,text='Open-source chess trainer',fg='#c9b6ff',bg='black',font=('Arial',14)).pack()
     state={'alpha':1.0}
     def fade():
         state['alpha']=round(state['alpha']-0.08,2)
