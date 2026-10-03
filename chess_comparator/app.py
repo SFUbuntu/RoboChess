@@ -58,7 +58,8 @@ try:
     import quad_tournament
     import lichess_puzzles
     import personalities
-    from locale_ui import LABELS, SPANISH, choose
+    import ui_settings
+    from locale_ui import choose, translate_label
 except Exception:
     _fatal('RoboChess no pudo importar módulos', traceback.format_exc())
 
@@ -72,6 +73,20 @@ class App:
         'Gris / Gray':('#eeeeee','#777777'),
         'Morado / Purple':('#eee6f5','#8064a2'),
         'Rosa / Pink':('#f7e6ec','#c77b98'),
+    }
+    UI_THEMES={
+        'light':{
+            'window':'#eef2f7','panel':'#ffffff','text':'#1b2430','muted':'#596579',
+            'accent':'#2563eb','accent_text':'#ffffff','button':'#e9eef5','button_hover':'#dce6f3',
+            'input':'#ffffff','border':'#cbd5e1','selection':'#c8dcff','gutter':'#dce2ea',
+            'menu':'#ffffff','menu_hover':'#dbeafe',
+        },
+        'dark':{
+            'window':'#111827','panel':'#1b2430','text':'#edf2f7','muted':'#a8b3c3',
+            'accent':'#2563eb','accent_text':'#ffffff','button':'#2a3544','button_hover':'#35445a',
+            'input':'#111923','border':'#394556','selection':'#244f80','gutter':'#273140',
+            'menu':'#1b2430','menu_hover':'#30425a',
+        },
     }
     TIME_CONTROLS={
         'No clock / Sin reloj (5 s/move)':{'base':None,'increment':0,'delay':0,'increment_until':None},
@@ -99,7 +114,7 @@ class App:
         self.coach_events=queue.Queue();self.coach_generation=0;self.feedback_pending=False
         self.coach_enabled=tk.BooleanVar(value=False);self.coach_images={}
         self.profile_data=profile_store.load();self.profile=profile_store.find(self.profile_data,self.profile_data.get('active'))
-        self.language=tk.StringVar(value='English');self.final_result=None;self.draw_events=queue.Queue();self.draw_offer_pending=False
+        self.language=tk.StringVar(value=ui_settings.load_language());self.final_result=None;self.draw_events=queue.Queue();self.draw_offer_pending=False
         self.piece_style=tk.StringVar(value='Nibbler');self.last_2d_style='Nibbler';self.last_3d_style='Staunton 3D';self.board_view=tk.StringVar(value='2D')
         self.board_colors=board_settings.load()
         self.light_square=self.board_colors['light'];self.dark_square=self.board_colors['dark']
@@ -126,6 +141,7 @@ class App:
         self.review_game=None;self.review_ply=0;self.review_label=tk.StringVar(value='—')
         self.engine_view=tk.StringVar(value='Stockfish');self.side_to_move=tk.StringVar(value='White')
         self.show_stockfish=tk.BooleanVar(value=True);self.show_crafty=tk.BooleanVar(value=True);self.show_robochess=tk.BooleanVar(value=True)
+        self.ui_theme=tk.StringVar(value=ui_settings.load_theme())
         self.make_menu()
         top=ttk.Frame(window,padding=(8,4)); top.pack(fill='x')
         for label,command in [('⚙ Stockfish',lambda:self.choose('Stockfish')),('⚙ Crafty',lambda:self.choose('Crafty')),('⚙ RoboChess',lambda:self.choose('RoboChess')),('▦ CPU / UCI',self.load_uci_engine),('✎ Edit',self.start_position_editor),('↻ Flip',self.flip_board),('▶ Analyze',self.analyze),('■ Stop',self.stop_action),('Reset',self.reset),('↶ Undo',self.undo),('📂 PGN',self.load_pgn),('💾 PGN analysis',self.save_pgn)]:
@@ -275,63 +291,175 @@ class App:
         self.put(self.resource_text,'Lucas Chess R2: tres estilos de piezas, libro de grandes maestros, finales de hasta tres piezas y ejercicios de mate en uno.')
         self.canvas.bind('<Button-1>',self.click)
         self.w.protocol('WM_DELETE_WINDOW',self.close)
-        self.draw();self.set_language();self.w.after(100,self.poll)
+        self.draw();self.set_language();self.apply_ui_theme();self.w.after(100,self.poll)
         if self.profile:self.status.set(self.T(f"Perfil: {self.profile['name']}. Menú Perfil o Entrenamiento para continuar.",f"Profile: {self.profile['name']}. Use Profile or Training menus."))
     def T(self,spanish,english):return choose(self.language.get(),spanish,english)
     def make_menu(self):
-        bar=tk.Menu(self.w);self.w.configure(menu=bar)
-        filemenu=tk.Menu(bar,tearoff=0);bar.add_cascade(label='Archivo / File',menu=filemenu)
-        filemenu.add_command(label='Abrir PGN / Open PGN…',command=self.load_pgn)
-        filemenu.add_command(label='Importar base PGN / Import PGN database…',command=self.open_pgn_database)
-        filemenu.add_command(label='Guardar partida / Save game…',command=self.save_game)
-        filemenu.add_command(label='Guardar análisis PGN / Save analysis PGN…',command=self.save_pgn)
-        filemenu.add_command(label='Guardar análisis TXT / Save analysis TXT…',command=self.save_txt)
-        filemenu.add_separator();filemenu.add_command(label='Perfil / progreso…',command=self.profile_dialog)
-        filemenu.add_command(label='Configuración… / Settings…',command=self.settings_dialog)
-        edit=tk.Menu(bar,tearoff=0);bar.add_cascade(label='Editar / Edit',menu=edit)
-        edit.add_command(label='Editar posición / Edit position…',command=self.start_position_editor)
-        edit.add_command(label='Pegar / fijar FEN…',command=self.fen_dialog)
-        edit.add_command(label='Deshacer / Undo',command=self.undo)
-        edit.add_command(label='Reiniciar tablero / Reset board',command=self.reset)
-        game=tk.Menu(bar,tearoff=0);bar.add_cascade(label='Partida / Game',menu=game)
-        game.add_command(label='Configurar partida… / Game setup…',command=self.game_setup_dialog)
-        game.add_command(label='Personalities…',command=self.personalities_dialog)
-        game.add_command(label='Nueva partida / New game',command=self.start_game)
-        game.add_command(label='Terminar / End game',command=self.end_game)
+        bar=tk.Menu(self.w,tearoff=0);self.w.configure(menu=bar)
+        self.menu_bar=bar;self.menu_widgets=[bar];self._menu_translations=[]
+        def next_index(widget):
+            last=widget.index('end')
+            return 0 if last is None else last+1
+        def remember(widget,index,spanish,english):
+            self._menu_translations.append((widget,index,spanish,english))
+        def cascade(parent,spanish,english,child):
+            index=next_index(parent);parent.add_cascade(label=self.T(spanish,english),menu=child);remember(parent,index,spanish,english)
+        def new_menu(parent,spanish,english):
+            item=tk.Menu(parent,tearoff=0);self.menu_widgets.append(item);cascade(parent,spanish,english,item);return item
+        def command(parent,spanish,english,**options):
+            index=next_index(parent);parent.add_command(label=self.T(spanish,english),**options);remember(parent,index,spanish,english)
+        def check(parent,spanish,english,**options):
+            index=next_index(parent);parent.add_checkbutton(label=self.T(spanish,english),**options);remember(parent,index,spanish,english)
+        def radio(parent,spanish,english,**options):
+            index=next_index(parent);parent.add_radiobutton(label=self.T(spanish,english),**options);remember(parent,index,spanish,english)
+
+        filemenu=new_menu(bar,'Archivo','File')
+        command(filemenu,'Abrir PGN…','Open PGN…',command=self.load_pgn,accelerator='Ctrl+O')
+        command(filemenu,'Importar base PGN…','Import PGN database…',command=self.open_pgn_database,accelerator='Ctrl+Shift+O')
+        filemenu.add_separator()
+        command(filemenu,'Guardar partida…','Save game…',command=self.save_game,accelerator='Ctrl+S')
+        command(filemenu,'Guardar análisis PGN…','Save analysis as PGN…',command=self.save_pgn,accelerator='Ctrl+Shift+S')
+        command(filemenu,'Guardar análisis TXT…','Save analysis as TXT…',command=self.save_txt,accelerator='Ctrl+Alt+S')
+        filemenu.add_separator()
+        command(filemenu,'Configuración…','Settings…',command=self.settings_dialog,accelerator='Ctrl+,')
+        filemenu.add_separator()
+        command(filemenu,'Salir del programa','Exit program / Quit',command=self.close,accelerator='Ctrl+Q')
+
+        edit=new_menu(bar,'Editar','Edit')
+        command(edit,'Editar posición…','Edit position…',command=self.start_position_editor,accelerator='Ctrl+E')
+        command(edit,'Pegar o fijar FEN…','Paste or set FEN…',command=self.fen_dialog,accelerator='Ctrl+Shift+F')
+        edit.add_separator()
+        command(edit,'Deshacer','Undo',command=self.undo,accelerator='Ctrl+Z')
+        command(edit,'Reiniciar tablero','Reset board',command=self.reset,accelerator='Ctrl+R')
+
+        game=new_menu(bar,'Partida','Game')
+        command(game,'Nueva partida','New game',command=self.start_game,accelerator='Ctrl+N')
+        command(game,'Configurar partida…','Game setup…',command=self.game_setup_dialog,accelerator='Ctrl+Shift+N')
+        command(game,'Personalidades…','Personalities…',command=self.personalities_dialog)
         game.add_separator()
-        game.add_command(label='Retirar jugada / Takeback',command=self.takeback)
-        game.add_command(label='Ofrecer tablas / Offer draw',command=self.offer_draw)
-        game.add_command(label='Rendirse / Resign',command=self.resign)
-        view=tk.Menu(bar,tearoff=0);bar.add_cascade(label='Vista / View',menu=view)
-        view.add_command(label='Girar tablero / Flip board',command=self.flip_board)
-        view.add_command(label='Análisis / Study layout',command=self.show_study_view)
-        view.add_command(label='Tutor y recursos / Tutor and resources',command=self.show_tools_view)
+        command(game,'Retirar jugada','Takeback',command=self.takeback,accelerator='Ctrl+Backspace')
+        command(game,'Ofrecer tablas','Offer draw',command=self.offer_draw)
+        command(game,'Rendirse','Resign',command=self.resign)
+        command(game,'Terminar partida','End game',command=self.end_game)
+
+        view=new_menu(bar,'Vista','View')
+        command(view,'Girar tablero','Flip board',command=self.flip_board,accelerator='Ctrl+F')
+        command(view,'Análisis','Study layout',command=self.show_study_view,accelerator='Ctrl+1')
+        command(view,'Tutor y recursos','Tutor and resources',command=self.show_tools_view,accelerator='Ctrl+2')
         view.add_separator()
-        view.add_checkbutton(label='Flechas Stockfish',variable=self.show_stockfish,command=self.draw)
-        view.add_checkbutton(label='Flecha Crafty',variable=self.show_crafty,command=self.draw)
-        view.add_checkbutton(label='Flecha RoboChess',variable=self.show_robochess,command=self.draw)
-        langmenu=tk.Menu(view,tearoff=0)
-        langmenu.add_radiobutton(label='English',variable=self.language,value='English',command=self.set_language)
-        langmenu.add_radiobutton(label='Español',variable=self.language,value='Español',command=self.set_language)
-        view.add_cascade(label='Idioma / Language',menu=langmenu)
-        engines=tk.Menu(bar,tearoff=0);bar.add_cascade(label='Motores / Engines',menu=engines)
-        for name in self.ENGINE_NAMES:engines.add_command(label=f'Cargar {name} / Load {name}…',command=lambda n=name:self.choose(n))
-        engines.add_command(label='Cargar motor UCI… / Load UCI engine…',command=self.load_uci_engine)
-        tournament=tk.Menu(bar,tearoff=0);bar.add_cascade(label='Torneo / Tournament',menu=tournament)
-        tournament.add_command(label='Nuevo torneo de entrenamiento… / New training tournament…',command=self.quad_dialog)
-        tournament.add_command(label='Abrir panel del torneo / Open tournament panel',command=self.quad_dialog)
-        tournament.add_command(label='Analizar partidas del torneo… / Review tournament games…',command=self.show_tournament_review)
-        training=tk.Menu(bar,tearoff=0);bar.add_cascade(label='Entrenamiento / Training',menu=training)
-        training.add_command(label='Puzzles y ejercicios Lucas Chess…',command=self.training_dialog)
-        training.add_command(label='Siguiente ejercicio Lucas Chess',command=self.new_puzzle)
-        training.add_command(label='Encontrar la mejor jugada',command=self.best_move_challenge)
-        training.add_command(label='Tutor y recursos (panel)',command=self.show_tools_view)
-        profilemenu=tk.Menu(bar,tearoff=0);bar.add_cascade(label='Perfil / Profile',menu=profilemenu)
-        profilemenu.add_command(label='Ver / editar perfiles…',command=self.profile_dialog)
-        profilemenu.add_command(label='Crear perfil nuevo…',command=lambda:self.profile_dialog(create=True))
-        settings=tk.Menu(bar,tearoff=0);bar.add_cascade(label='Configuración / Settings',menu=settings)
-        settings.add_command(label='Piezas, tablero y perspectiva…',command=self.settings_dialog)
-        settings.add_command(label='Configurar partida…',command=self.game_setup_dialog)
+        check(view,'Flechas de Stockfish','Stockfish arrows',variable=self.show_stockfish,command=self.draw)
+        check(view,'Flechas de Crafty','Crafty arrows',variable=self.show_crafty,command=self.draw)
+        check(view,'Flechas de RoboChess','RoboChess arrows',variable=self.show_robochess,command=self.draw)
+        appearance=new_menu(view,'Apariencia','Appearance')
+        radio(appearance,'Claro','Light',variable=self.ui_theme,value='light',command=lambda:self.set_ui_theme('light'))
+        radio(appearance,'Oscuro','Dark',variable=self.ui_theme,value='dark',command=lambda:self.set_ui_theme('dark'))
+        langmenu=new_menu(view,'Idioma','Language')
+        radio(langmenu,'English','English',variable=self.language,value='English',command=self.set_language)
+        radio(langmenu,'Español','Español',variable=self.language,value='Español',command=self.set_language)
+
+        engines=new_menu(bar,'Motores','Engines')
+        for name in self.ENGINE_NAMES:command(engines,f'Cargar {name}…',f'Load {name}…',command=lambda n=name:self.choose(n))
+        command(engines,'Cargar motor UCI…','Load UCI engine…',command=self.load_uci_engine,accelerator='Ctrl+U')
+        tournament=new_menu(bar,'Torneo','Tournament')
+        command(tournament,'Nuevo torneo de entrenamiento…','New training tournament…',command=self.quad_dialog,accelerator='Ctrl+Shift+T')
+        command(tournament,'Abrir panel del torneo','Open tournament panel',command=self.quad_dialog)
+        command(tournament,'Analizar partidas del torneo…','Review tournament games…',command=self.show_tournament_review)
+        training=new_menu(bar,'Entrenamiento','Training')
+        command(training,'Puzzles y ejercicios de Lucas Chess…','Lucas Chess puzzles and exercises…',command=self.training_dialog)
+        command(training,'Siguiente ejercicio','Next exercise',command=self.new_puzzle,accelerator='Ctrl+P')
+        command(training,'Encontrar la mejor jugada','Find the best move',command=self.best_move_challenge,accelerator='Ctrl+Shift+P')
+        command(training,'Abrir tutor y recursos','Open tutor and resources',command=self.show_tools_view)
+        profilemenu=new_menu(bar,'Perfil','Profile')
+        command(profilemenu,'Ver o editar perfiles…','View or edit profiles…',command=self.profile_dialog)
+        command(profilemenu,'Crear perfil nuevo…','Create new profile…',command=lambda:self.profile_dialog(create=True))
+        settings=new_menu(bar,'Configuración','Settings')
+        command(settings,'Piezas, tablero y perspectiva…','Pieces, board, and orientation…',command=self.settings_dialog)
+        command(settings,'Configurar partida…','Game setup…',command=self.game_setup_dialog)
+        helpmenu=new_menu(bar,'Ayuda','Help')
+        command(helpmenu,'Acerca de RoboChess','About RoboChess',command=lambda:messagebox.showinfo(self.T('Acerca de RoboChess','About RoboChess'),self.T('RoboChess · Entrenamiento y análisis de ajedrez','RoboChess · Chess training and analysis'),parent=self.w))
+        self._bind_menu_shortcuts()
+
+    def _bind_menu_shortcuts(self):
+        shortcuts=(
+            ('<Control-o>',self.load_pgn),('<Control-Shift-o>',self.open_pgn_database),('<Control-comma>',self.settings_dialog),
+            ('<Control-s>',self.save_game),('<Control-Shift-s>',self.save_pgn),
+            ('<Control-Alt-s>',self.save_txt),('<Control-q>',self.close),
+            ('<Control-e>',self.start_position_editor),('<Control-Shift-f>',self.fen_dialog),
+            ('<Control-z>',self.undo),('<Control-r>',self.reset),
+            ('<Control-n>',self.start_game),('<Control-Shift-n>',self.game_setup_dialog),
+            ('<Control-BackSpace>',self.takeback),('<Control-f>',self.flip_board),
+            ('<Control-1>',self.show_study_view),('<Control-2>',self.show_tools_view),
+            ('<Control-u>',self.load_uci_engine),('<Control-p>',self.new_puzzle),
+            ('<Control-Shift-p>',self.best_move_challenge),('<Control-Shift-t>',self.quad_dialog),
+        )
+        for sequence,command in shortcuts:
+            self.w.bind_all(sequence,lambda event,fn=command:(fn(),'break')[1],add='+')
+
+    def set_ui_theme(self,theme):
+        if theme not in self.UI_THEMES:return
+        self.ui_theme.set(theme)
+        try:ui_settings.save_theme(theme)
+        except OSError as err:
+            messagebox.showwarning('RoboChess',f'No se pudo guardar la apariencia: {err}',parent=self.w)
+        self.apply_ui_theme()
+
+    def apply_ui_theme(self):
+        colors=self.UI_THEMES.get(self.ui_theme.get(),self.UI_THEMES['light'])
+        style=ttk.Style(self.w)
+        available=style.theme_names()
+        target='clam' if 'clam' in available else style.theme_use()
+        if style.theme_use()!=target:style.theme_use(target)
+        style.configure('.',background=colors['panel'],foreground=colors['text'],font=('Segoe UI',9))
+        style.configure('TFrame',background=colors['window'])
+        style.configure('TLabel',background=colors['window'],foreground=colors['text'])
+        style.configure('TLabelframe',background=colors['window'],foreground=colors['text'],bordercolor=colors['border'])
+        style.configure('TLabelframe.Label',background=colors['window'],foreground=colors['text'])
+        style.configure('TButton',background=colors['button'],foreground=colors['text'],bordercolor=colors['border'],padding=(8,4))
+        style.map('TButton',background=[('pressed',colors['accent']),('active',colors['button_hover'])],foreground=[('pressed',colors['accent_text'])])
+        style.configure('TCheckbutton',background=colors['window'],foreground=colors['text'])
+        style.map('TCheckbutton',background=[('active',colors['window'])],foreground=[('disabled',colors['muted'])])
+        style.configure('TRadiobutton',background=colors['window'],foreground=colors['text'])
+        style.map('TRadiobutton',background=[('active',colors['window'])])
+        style.configure('TEntry',fieldbackground=colors['input'],foreground=colors['text'],bordercolor=colors['border'])
+        style.configure('TCombobox',fieldbackground=colors['input'],foreground=colors['text'],background=colors['button'],arrowcolor=colors['text'])
+        style.map('TCombobox',fieldbackground=[('readonly',colors['input'])],foreground=[('readonly',colors['text'])])
+        style.configure('TSpinbox',fieldbackground=colors['input'],foreground=colors['text'],background=colors['button'],arrowcolor=colors['text'])
+        style.configure('TNotebook',background=colors['window'],bordercolor=colors['border'])
+        style.configure('TNotebook.Tab',background=colors['button'],foreground=colors['text'],padding=(12,5))
+        style.map('TNotebook.Tab',background=[('selected',colors['accent']),('active',colors['button_hover'])],foreground=[('selected',colors['accent_text'])])
+        style.configure('Treeview',background=colors['input'],fieldbackground=colors['input'],foreground=colors['text'],rowheight=24)
+        style.configure('Treeview.Heading',background=colors['button'],foreground=colors['text'],font=('Segoe UI',9,'bold'))
+        style.map('Treeview',background=[('selected',colors['selection'])],foreground=[('selected',colors['text'])])
+        style.configure('TSeparator',background=colors['border'])
+        style.configure('Horizontal.TProgressbar',background=colors['accent'],troughcolor=colors['button'])
+        self.w.option_add('*Background',colors['panel'])
+        self.w.option_add('*Foreground',colors['text'])
+        self.w.option_add('*Entry.Background',colors['input'])
+        self.w.option_add('*Text.Background',colors['input'])
+        self.w.option_add('*Text.Foreground',colors['text'])
+        self.w.option_add('*Menu.Background',colors['menu'])
+        self.w.option_add('*Menu.Foreground',colors['text'])
+        self.w.configure(bg=colors['window'])
+        def recolor(widget):
+            try:
+                if isinstance(widget,tk.LabelFrame):widget.configure(bg=colors['window'],fg=colors['text'])
+                elif isinstance(widget,tk.Frame):widget.configure(bg=colors['window'])
+                elif isinstance(widget,tk.Label):widget.configure(bg=colors['window'],fg=colors['text'])
+                elif isinstance(widget,tk.Button):
+                    if widget not in (getattr(self,'light_color_button',None),getattr(self,'dark_color_button',None)):
+                        widget.configure(bg=colors['button'],fg=colors['text'],activebackground=colors['button_hover'],activeforeground=colors['text'],relief='flat',bd=0)
+                elif isinstance(widget,tk.Entry):widget.configure(bg=colors['input'],fg=colors['text'],insertbackground=colors['text'],selectbackground=colors['selection'])
+                elif isinstance(widget,tk.Text):widget.configure(bg=colors['input'],fg=colors['text'],insertbackground=colors['text'],selectbackground=colors['selection'])
+                elif isinstance(widget,tk.Listbox):widget.configure(bg=colors['input'],fg=colors['text'],selectbackground=colors['selection'])
+                elif isinstance(widget,tk.Canvas):
+                    bg=colors['gutter'] if widget is getattr(self,'evalbar',None) else colors['window']
+                    widget.configure(bg=bg)
+            except tk.TclError:pass
+            for child in widget.winfo_children():recolor(child)
+        recolor(self.w)
+        for item in getattr(self,'menu_widgets',()):
+            try:item.configure(bg=colors['menu'],fg=colors['text'],activebackground=colors['menu_hover'],activeforeground=colors['text'],disabledforeground=colors['muted'],bd=0,relief='flat')
+            except tk.TclError:pass
     def _fit_board(self,event=None):
         if self._fitting_board or not hasattr(self,'board_frame'):return
         raw_h=self.board_frame.winfo_height();raw_w=self.board_frame.winfo_width()
@@ -631,21 +759,37 @@ class App:
                 'final':'Focus: endgame. Practice king activity, passed pawns, and pawn races. Replay difficult endgames.',
                 None:'Play three more games at your level and review the tutor lines. There is no clear priority yet.'}[focus]
     def set_language(self,event=None):
+        language=self.language.get()
+        ui_settings.save_language(language)
+        self.w.title(self.T('RoboChess · Análisis y estudio de ajedrez','RoboChess · Chess analysis and study'))
         def visit(widget):
             if isinstance(widget,ttk.Notebook):
                 for tab in widget.tabs():
                     original=widget.tab(tab,'text')
                     if not hasattr(self,'_tab_labels'):self._tab_labels={}
                     if tab not in self._tab_labels:self._tab_labels[tab]=original
-                    widget.tab(tab,text=LABELS.get(self._tab_labels[tab],self._tab_labels[tab]) if self.language.get()=='English' else SPANISH.get(self._tab_labels[tab],self._tab_labels[tab]))
+                    widget.tab(tab,text=translate_label(self._tab_labels[tab],language))
+            if isinstance(widget,ttk.Treeview):
+                if not hasattr(self,'_tree_headers'):self._tree_headers={}
+                for column in widget.cget('columns'):
+                    key=(widget,column)
+                    if key not in self._tree_headers:
+                        try:self._tree_headers[key]=widget.heading(column,'text')
+                        except tk.TclError:continue
+                    try:widget.heading(column,text=translate_label(self._tree_headers[key],language))
+                    except tk.TclError:pass
             try:
                 original=widget.cget('text')
                 if not hasattr(self,'_ui_labels'):self._ui_labels={}
                 if widget not in self._ui_labels:self._ui_labels[widget]=original
-                widget.configure(text=LABELS.get(self._ui_labels[widget],self._ui_labels[widget]) if self.language.get()=='English' else SPANISH.get(self._ui_labels[widget],self._ui_labels[widget]))
+                widget.configure(text=translate_label(self._ui_labels[widget],language))
             except (tk.TclError,AttributeError):pass
             for child in widget.winfo_children():visit(child)
         visit(self.w)
+        for widget,index,spanish,english in getattr(self,'_menu_translations',()):
+            try:widget.entryconfigure(index,label=self.T(spanish,english))
+            except tk.TclError:pass
+        self.refresh_clock()
         if not self.playing and not self.puzzle_active:self.status.set(self.T('Selecciona los motores y pulsa Analizar.','Select engines and press Analyze.'))
         if not self.playing:self.put(self.coach_text,self.T('Activa el tutor para recibir consejos. Pulsa Pista o Explicar.','Enable the tutor for advice. Press Hint or Explain.'))
     def portrait(self,filename,max_size):
