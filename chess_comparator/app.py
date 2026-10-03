@@ -1558,7 +1558,7 @@ class App:
                 card.configure(relief='solid' if pid==player['id'] else 'flat',borderwidth=2 if pid==player['id'] else 1)
             photo=load_image(personalities.portrait_path(player),220)
             if photo:portrait.configure(image=photo)
-            flag_image=load_image(personalities.flag_path(player),48)
+            flag_image=load_image(personalities.flag_path(player),64)
             if flag_image:flag.configure(image=flag_image)
             name_var.set(player['name']);title_var.set(player['title'])
             info_var.set(
