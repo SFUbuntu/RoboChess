@@ -1,6 +1,6 @@
 # RoboChess / Nibbler
 
-English instructions. Instrucciones en español: [README.md](README.md).
+English instructions. Instrucciones en español: [README-ES.md](README-ES.md).
 
 Windows chess study and training program. Board, UCI engines, opening book, puzzles, player profiles, a local tournament against the computer, and game sounds.
 
