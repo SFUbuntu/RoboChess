@@ -1523,7 +1523,7 @@ class App:
         players=personalities.PLAYERS
         dialog=tk.Toplevel(self.w)
         dialog.title('Personalities')
-        dialog.transient(self.w);dialog.grab_set();dialog.geometry('860x560')
+        dialog.transient(self.w);dialog.grab_set();dialog.geometry('980x680')
         dialog.configure(bg='#f4f5f7')
         selected={'player':players[2]}
         left=ttk.Frame(dialog);left.pack(side='left',fill='both',expand=True,padx=8,pady=8)
@@ -1534,12 +1534,14 @@ class App:
         canvas.create_window((0,0),window=grid,anchor='nw')
         canvas.configure(yscrollcommand=scroll.set)
         canvas.pack(side='left',fill='both',expand=True);scroll.pack(side='right',fill='y')
-        right=ttk.Frame(dialog);right.pack(side='right',fill='y',padx=12,pady=12)
-        portrait=ttk.Label(right);portrait.pack()
+        right=ttk.Frame(dialog);right.pack(side='right',fill='both',expand=True,padx=12,pady=12)
+        portrait=ttk.Label(right);portrait.pack(anchor='w')
+        heading=ttk.Frame(right);heading.pack(anchor='w',fill='x',pady=(8,0))
+        flag=ttk.Label(heading);flag.pack(side='left',padx=(0,8))
         name_var=tk.StringVar();title_var=tk.StringVar();info_var=tk.StringVar()
-        ttk.Label(right,textvariable=name_var,font=('Segoe UI',16,'bold')).pack(anchor='w',pady=(10,0))
-        ttk.Label(right,textvariable=title_var,wraplength=400).pack(anchor='w')
-        ttk.Label(right,textvariable=info_var,justify='left').pack(anchor='w',pady=8)
+        ttk.Label(heading,textvariable=name_var,font=('Segoe UI',16,'bold')).pack(side='left')
+        ttk.Label(right,textvariable=title_var,wraplength=460).pack(anchor='w')
+        ttk.Label(right,textvariable=info_var,justify='left',wraplength=460).pack(anchor='w',pady=8)
         def load_image(path,max_size):
             if not path:return None
             key=(path,max_size)
@@ -1554,11 +1556,18 @@ class App:
             selected['player']=player
             for pid,card in cards.items():
                 card.configure(relief='solid' if pid==player['id'] else 'flat',borderwidth=2 if pid==player['id'] else 1)
-            photo=load_image(personalities.portrait_path(player),420)
+            photo=load_image(personalities.portrait_path(player),220)
             if photo:portrait.configure(image=photo)
-            book=personalities.book_path(player)
+            flag_image=load_image(personalities.flag_path(player),24)
+            if flag_image:flag.configure(image=flag_image)
             name_var.set(player['name']);title_var.set(player['title'])
-            info_var.set(f"Elo  {player['elo']}\nBook  {player['id']}.bin"+( '' if book else '  (missing)') )
+            info_var.set(
+                f"{player['country']}\n"
+                f"Elo  {player['elo']}\n\n"
+                f"Style\n{player['style']}\n\n"
+                f"White\n{player['white']}\n"
+                f"Black\n{player['black']}"
+            )
         for index,player in enumerate(players):
             card=tk.Frame(grid,bd=1,relief='flat',bg='white',highlightbackground='#d0d4da',highlightthickness=1)
             card.grid(row=index//3,column=index%3,padx=6,pady=6)
