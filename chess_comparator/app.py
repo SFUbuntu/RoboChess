@@ -93,7 +93,7 @@ class App:
         self.coach_enabled=tk.BooleanVar(value=False);self.coach_images={}
         self.profile_data=profile_store.load();self.profile=profile_store.find(self.profile_data,self.profile_data.get('active'))
         self.language=tk.StringVar(value='English');self.final_result=None;self.draw_events=queue.Queue();self.draw_offer_pending=False
-        self.piece_style=tk.StringVar(value='Nibbler');self.last_2d_style='Nibbler';self.board_view=tk.StringVar(value='2D')
+        self.piece_style=tk.StringVar(value='Nibbler');self.last_2d_style='Nibbler';self.last_3d_style='Staunton 3D';self.board_view=tk.StringVar(value='2D')
         self.board_colors=board_settings.load()
         self.light_square=self.board_colors['light'];self.dark_square=self.board_colors['dark']
         initial_palette=next((name for name,colors in self.BOARD_PALETTES.items() if colors==(self.light_square,self.dark_square)),'Personalizar / Custom')
@@ -238,8 +238,8 @@ class App:
         ttk.Label(viewrow,text='Vista 2D / 3D · Board view:').pack(side='left')
         self.view_selector=ttk.Combobox(viewrow,textvariable=self.board_view,values=('2D','3D'),state='readonly',width=7)
         self.view_selector.pack(side='left',padx=(6,12));self.view_selector.bind('<<ComboboxSelected>>',self.set_board_view)
-        styles=[name for name in training_resources.piece_sets() if name!='Staunton 3D']
-        self.style_selector=ttk.Combobox(resources_tab,textvariable=self.piece_style,values=('Nibbler',*styles),state='readonly',width=30)
+        styles=self._piece_style_names()
+        self.style_selector=ttk.Combobox(resources_tab,textvariable=self.piece_style,values=styles,state='readonly',width=30)
         self.style_selector.pack(anchor='w',pady=4);self.style_selector.bind('<<ComboboxSelected>>',self.change_pieces)
         ttk.Label(resources_tab,text='Colores del tablero / Board colors').pack(anchor='w',pady=(5,1))
         colorrow=ttk.Frame(resources_tab);colorrow.pack(anchor='w',fill='x',pady=(0,3))
@@ -381,10 +381,14 @@ class App:
         ttk.Combobox(row,textvariable=self.side_to_move,values=('White','Black'),state='readonly',width=8).pack(side='left',padx=6)
         ttk.Button(row,text='Set FEN',command=lambda:(self.set_fen(),win.destroy())).pack(side='left',padx=8)
         ttk.Button(row,text=self.T('Cancelar','Cancel'),command=win.destroy).pack(side='right')
+    PIECE_3D=('Staunton 3D','Cool Arcade')
     def _piece_style_names(self):
         styles=list(training_resources.piece_sets())
+        if self.board_view.get()=='3D':
+            return [name for name in self.PIECE_3D if name in styles or name=='Staunton 3D']
+        styles=[name for name in styles if name not in self.PIECE_3D]
         if 'Nibbler' not in styles:styles=['Nibbler',*styles]
-        else:styles=['Nibbler']+[s for s in styles if s!='Nibbler']
+        else:styles=['Nibbler']+[name for name in styles if name!='Nibbler']
         return styles
     def settings_dialog(self):
         win=tk.Toplevel(self.w);win.title(self.T('Configuración del tablero','Board settings'));win.transient(self.w)
@@ -397,9 +401,9 @@ class App:
         row=ttk.Frame(frame);row.pack(fill='x',pady=4)
         ttk.Label(row,text=self.T('Estilo de piezas','Piece style'),width=18).pack(side='left')
         styles=self._piece_style_names()
-        self.style_selector=ttk.Combobox(row,textvariable=self.piece_style,values=styles,state='readonly' if self.board_view.get()=='2D' else 'disabled',width=28)
-        self.style_selector.pack(side='left');self.style_selector.bind('<<ComboboxSelected>>',self.change_pieces)
-        ttk.Label(frame,text=self.T('En 3D se usa el set Staunton 3D incluido. En 2D puedes elegir Nibbler o cualquier set de Lucas Chess.','3D uses the bundled Staunton 3D set. 2D can use Nibbler or any Lucas Chess set.')).pack(anchor='w',pady=(0,8))
+        self.settings_style_selector=ttk.Combobox(row,textvariable=self.piece_style,values=styles,state='readonly',width=28)
+        self.settings_style_selector.pack(side='left');self.settings_style_selector.bind('<<ComboboxSelected>>',self.change_pieces)
+        ttk.Label(frame,text=self.T('En 3D puedes elegir Staunton 3D o Cool Arcade. En 2D puedes elegir Nibbler o cualquier otro set.','3D can use Staunton 3D or Cool Arcade. 2D can use Nibbler or any other set.')).pack(anchor='w',pady=(0,8))
         ttk.Label(frame,text=self.T('Colores del tablero','Board colors')).pack(anchor='w')
         colorrow=ttk.Frame(frame);colorrow.pack(anchor='w',fill='x',pady=4)
         palettes=ttk.Combobox(colorrow,textvariable=self.board_palette,values=(*self.BOARD_PALETTES,'Personalizar / Custom'),state='readonly',width=30)
@@ -631,7 +635,8 @@ class App:
         factor=max(1,math.ceil(max(source.width(),source.height())/max_size))
         return source.subsample(factor,factor)
     def change_pieces(self,event=None):
-        if self.board_view.get()=='2D':self.last_2d_style=self.piece_style.get()
+        if self.board_view.get()=='3D':self.last_3d_style=self.piece_style.get()
+        else:self.last_2d_style=self.piece_style.get()
         self.images.clear();self.draw()
     def select_board_palette(self,event=None):
         colors=self.BOARD_PALETTES.get(self.board_palette.get())
@@ -657,10 +662,15 @@ class App:
         self.draw()
     def set_board_view(self,event=None):
         if self.board_view.get()=='3D':
-            if self.piece_style.get()!='Staunton 3D':self.last_2d_style=self.piece_style.get()
-            self.piece_style.set('Staunton 3D');self.style_selector.configure(state='disabled')
+            if self.piece_style.get() not in self.PIECE_3D:self.last_2d_style=self.piece_style.get()
+            self.piece_style.set(self.last_3d_style if self.last_3d_style in self.PIECE_3D else 'Staunton 3D')
         else:
-            self.piece_style.set(self.last_2d_style);self.style_selector.configure(state='readonly')
+            if self.piece_style.get() in self.PIECE_3D:self.last_3d_style=self.piece_style.get()
+            self.piece_style.set(self.last_2d_style)
+        names=self._piece_style_names()
+        for box in (getattr(self,'style_selector',None),getattr(self,'settings_style_selector',None)):
+            if box is not None:
+                box.configure(values=names,state='readonly')
         self.images.clear();self.draw()
     def book_selected(self,event=None):
         self.book_path=self.book_paths.get(self.book_choice.get(),training_resources.BOOK);self.show_book()
