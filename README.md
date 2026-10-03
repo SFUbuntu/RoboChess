@@ -1,104 +1,104 @@
 # RoboChess / Nibbler
 
-Español abajo. English instructions: [README-EN.md](README-EN.md).
+English. Instrucciones en español: [README-ES.md](README-ES.md).
 
-Programa de estudio y entrenamiento de ajedrez para Windows. Tablero, motores UCI, libro de aperturas, puzzles, perfiles, torneo local contra la computadora y sonidos de partida.
+Windows chess study and training program. Board, UCI engines, opening book, puzzles, player profiles, a local tournament against the computer, and game sounds.
 
-Esta carpeta es el programa completo: código, piezas, puzzles de Lucas Chess, libro Polyglot, tablas Gaviota y el motor Crafty. No hace falta bajar otra cosa para abrirlo, salvo Python y, si quieres el motor fuerte, Stockfish.
+This repository is the full program: code, piece sets, Lucas Chess puzzles, the Polyglot book, Gaviota tablebases, and Crafty. To open it you only need Python and, for the strong engine, Stockfish.
 
-## Qué necesitas
+## Requirements
 
-- Windows 10 o 11
-- Python 3.10 o más nuevo, desde [python.org](https://www.python.org/downloads/)
-- En el instalador marca **Add python.exe to PATH** y **tcl/tk and IDLE**
-- No uses el Python de la Microsoft Store: a menudo no trae tkinter y la ventana no abre
+- Windows 10 or 11
+- Python 3.10 or newer from [python.org](https://www.python.org/downloads/)
+- In the installer, check **Add python.exe to PATH** and **tcl/tk and IDLE**
+- Do not use the Microsoft Store Python. It often ships without tkinter, and the window will not open.
 
-Opcional, solo para puzzles Lichess en `.csv.zst`:
+Optional, only for Lichess puzzles in `.csv.zst`:
 
 ```bat
 py -3 -m pip install zstandard
 ```
 
-## Cómo ejecutarlo
+## Run it
 
-1. Entra en la carpeta `chess_comparator`.
-2. Doble clic en `INICIAR.bat`.
-3. Si falta un motor, el programa avisa y deja la ventana abierta.
+1. Open the `chess_comparator` folder.
+2. Double-click `INICIAR.bat`.
+3. If an engine is missing, the program reports it and leaves the window open.
 
-La primera vez elige el ejecutable de cada motor con los botones de la barra (Stockfish, Crafty, RoboChess). Crafty ya viene como `crafty.exe`. RoboChess de 32 bits viene en `robbochess\RoboChess.exe`. Stockfish no se incluye: bájalo de [stockfishchess.org](https://stockfishchess.org/download/) y señala `stockfish.exe`.
+The first time, pick each engine executable with the toolbar buttons (Stockfish, Crafty, RoboChess). Crafty is already included as `crafty.exe`. The 32-bit RoboChess engine is in `robbochess\RoboChess.exe`. Stockfish is not bundled: download it from [stockfishchess.org](https://stockfishchess.org/download/) and point the button at `stockfish.exe`.
 
-## Cómo crear el ejecutable
+## Build the executable
 
-Dentro de `chess_comparator`, doble clic en `COMPILAR-EXE.bat`.
+Inside `chess_comparator`, double-click `COMPILAR-EXE.bat`.
 
-Genera `dist\RoboChess\RoboChess.exe`. Copia **toda** la carpeta `dist\RoboChess` a otro PC. El `.exe` solo no arranca: necesita los assets y los motores que van a su lado.
+It creates `dist\RoboChess\RoboChess.exe`. Copy the **whole** `dist\RoboChess` folder to another PC. The `.exe` alone will not start: it needs the assets and engines beside it.
 
-## Cómo se juega
+## How to use it
 
-- **Partida / Game**: motor, nivel Elo, color y ritmo. Luego **Nueva partida**.
-- Al coronar un peón tuyo sales a elegir dama, torre, alfil o caballo. Cancelar deja el peón donde estaba. La máquina elige su propia pieza.
-- **Torneo / Tournament**: cuad local contra tres rivales de Elo configurable, rondas, ritmo, performance y análisis de las partidas.
-- **Entrenamiento / Training**: puzzles y entrenamientos de `assets\lucas_resources`.
-- **Perfil / Profile**: crear, borrar, avatar, Elo y progreso.
-- **Configuración / Settings**: estilo de piezas, colores del tablero y vista 2D/3D.
-- **Archivo / File**: abrir PGN, base PGN y guardar la partida.
+- **Game**: choose engine, Elo level, color, and time control, then start a new game.
+- When you promote a pawn, pick queen, rook, bishop, or knight. Cancel leaves the pawn on its square. The computer chooses its own promotion piece.
+- **Tournament**: local quad against three opponents at a chosen Elo, with rounds, time control, performance rating, and game review.
+- **Training**: puzzles and drills from `assets\lucas_resources`.
+- **Profile**: create or delete a profile, avatar, Elo, and progress.
+- **Settings**: piece style, board colors, and 2D/3D view.
+- **File**: open a PGN, import a PGN database, and save the game.
 
-Sonidos, si la carpeta `sounds` está junto a `app.py`:
+Sounds, if the `sounds` folder is next to `app.py`:
 
-| Archivo | Cuándo |
+| File | When |
 | --- | --- |
-| `newgame.wav` | Nueva partida |
-| `move6.wav` | Jugada normal |
-| `capture1.wav` | Captura |
-| `castle.wav` | Enroque |
-| `illegal.wav` | Jugada ilegal |
+| `newgame.wav` | New game |
+| `move6.wav` | Normal move |
+| `capture1.wav` | Capture |
+| `castle.wav` | Castling |
+| `illegal.wav` | Illegal move |
 
-## Estructura
+## Layout
 
 ```text
 chess_comparator/
-  app.py                 ventana principal
-  profile_store.py       perfiles en JSON
-  quad_tournament.py     torneo local y performance
-  training_resources.py  piezas, libros y puzzles
-  board_settings.py      colores y perspectiva
-  locale_ui.py           textos
-  lichess_puzzles.py     puzzles Lichess
-  crafty_uci.py          puente UCI de Crafty
-  INICIAR.bat            arrancar con Python
-  COMPILAR-EXE.bat       generar el .exe
-  avatars/               avatares de perfil
-  sounds/                efectos de partida
-  assets/                piezas, puzzles Lucas, libro, Gaviota
-  vendor/                python-chess incluido
-  robbochess/            motor RoboChess
-  crafty.exe             motor Crafty para Windows
+  app.py                 main window
+  profile_store.py       profiles in JSON
+  quad_tournament.py     local tournament and performance
+  training_resources.py  pieces, books, and puzzles
+  board_settings.py      colors and perspective
+  locale_ui.py           interface text
+  lichess_puzzles.py     Lichess puzzles
+  crafty_uci.py          Crafty UCI bridge
+  INICIAR.bat            start with Python
+  COMPILAR-EXE.bat       build the .exe
+  avatars/               profile avatars
+  sounds/                game sound effects
+  assets/                pieces, Lucas puzzles, book, Gaviota
+  vendor/                bundled python-chess
+  robbochess/            RoboChess engine
+  crafty.exe             Crafty engine for Windows
 ```
 
-Los perfiles se guardan en la carpeta del usuario, no dentro del repositorio.
+Profiles are stored in the user folder, not in this repository.
 
-## Motores y libros
+## Engines and books
 
-- Crafty y RoboChess vienen con el proyecto.
-- Stockfish se elige aparte. El nivel Elo de la partida limita la fuerza del motor; no cambia el Elo de Stockfish en su archivo.
-- El libro de aperturas es Polyglot (`.bin`). Un libro ChessBase (`.ctg`) no se abre aquí. Hay que convertirlo a `.bin` y elegirlo en Tutor / Resources.
-- Bases PGN: Archivo → Importar base PGN. Un archivo de miles de partidas va bien. Una base de millones puede congelar la ventana porque se carga entera en memoria.
+- Crafty and RoboChess are included.
+- Stockfish is selected separately. The game Elo limit weakens the engine for that game. It does not edit Stockfish's own file.
+- The opening book is Polyglot (`.bin`). A ChessBase book (`.ctg`) cannot be opened here. Convert it to `.bin` and choose it under Tutor / Resources.
+- PGN databases: File → Import PGN database. A file of a few thousand games is fine. A database of millions can freeze the window because every game is loaded into memory.
 
-## Licencias
+## Licenses
 
-Este repositorio junta varios proyectos. Cada uno conserva su licencia:
+This repository combines several projects. Each keeps its own license:
 
-- `NIBBLER-LICENSE.txt` — interfaz de estudio Nibbler
-- `LUCAS-CHESS-LICENSE.txt` — piezas, puzzles y recursos Lucas Chess
-- `PYTHON-CHESS-LICENSE.txt` — biblioteca `vendor/chess`
-- `STOCKFISH-LICENSE.txt` — notas de Stockfish (el binario no va incluido)
-- Crafty y RoboChess / RobboLito: ver `CRAFTY-README.txt` y `robbochess/`
+- `NIBBLER-LICENSE.txt` — Nibbler study interface
+- `LUCAS-CHESS-LICENSE.txt` — Lucas Chess pieces, puzzles, and resources
+- `PYTHON-CHESS-LICENSE.txt` — `vendor/chess` library
+- `STOCKFISH-LICENSE.txt` — Stockfish notes (the binary is not included)
+- Crafty and RoboChess / RobboLito: see `CRAFTY-README.txt` and `robbochess/`
 
-No redistribuyas un motor con una licencia que no lo permita. Stockfish GPLv3, si lo compilas dentro del `.exe`, obliga a publicar también el código correspondiente.
+Do not redistribute an engine under a license that does not allow it. Stockfish is GPLv3. If you bundle it inside the `.exe`, you must also publish the corresponding source.
 
-## Problemas frecuentes
+## Common problems
 
-- La consola se cierra al abrir `app.py`: usa `INICIAR.bat`. Python tiene que incluir tkinter.
-- El tablero no cabe: maximiza la ventana. El tablero se ajusta al espacio.
-- No hay sonido: la carpeta `sounds` tiene que estar junto a `app.py`.
-- El reloj sale duplicado: usa el `app.py` de este repositorio. Solo debe verse el reloj de la barra superior.
+- The console closes when you open `app.py`: use `INICIAR.bat`. Python must include tkinter.
+- The board does not fit: maximize the window. The board resizes to the available space.
+- No sound: the `sounds` folder must sit next to `app.py`.
+- The clock appears twice: use the `app.py` from this repository. Only the clock on the top bar should be visible.
