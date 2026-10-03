@@ -10,7 +10,14 @@ def _resource_root():
         if os.path.isdir(os.path.join(exe_dir, 'assets')):
             return exe_dir
         return meipass or exe_dir
-    return os.path.dirname(os.path.abspath(__file__))
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    parent_dir = os.path.dirname(script_dir)
+    candidates = (script_dir, parent_dir, os.path.join(parent_dir, 'chess_comparator'))
+    for candidate in candidates:
+        if (os.path.isfile(os.path.join(candidate, 'profile_store.py'))
+                and os.path.isdir(os.path.join(candidate, 'assets'))):
+            return candidate
+    return script_dir
 
 def _pause_if_console():
     if sys.stdout and sys.stdout.isatty():
@@ -383,9 +390,24 @@ class App:
         ttk.Button(row,text=self.T('Cancelar','Cancel'),command=win.destroy).pack(side='right')
     PIECE_3D=('Staunton 3D','Cool Arcade')
     def _piece_style_names(self):
-        styles=list(training_resources.piece_sets())
+        required={f'{color}{piece}.png' for color in ('','_') for piece in ('K','Q','R','B','N','P')}
+        style_root=os.path.join(ROOT,'assets','lucas_styles')
+        png_styles=[]
+        if os.path.isdir(style_root):
+            for name in os.listdir(style_root):
+                folder=os.path.join(style_root,name)
+                try:files=set(os.listdir(folder))
+                except OSError:continue
+                if os.path.isdir(folder) and required.issubset(files):png_styles.append(name)
+        try:discovered=list(training_resources.piece_sets())
+        except Exception:discovered=[]
+        # The board renderer loads PNG sprites. Keep only usable styles and also
+        # include PNG-only sets such as Cool Arcade, which have SVG index files
+        # only for compatibility with older resource scanners.
+        styles=[name for name in discovered if name in png_styles]
+        styles.extend(name for name in png_styles if name not in styles)
         if self.board_view.get()=='3D':
-            return [name for name in self.PIECE_3D if name in styles or name=='Staunton 3D']
+            return [name for name in self.PIECE_3D if name in styles]
         styles=[name for name in styles if name not in self.PIECE_3D]
         if 'Nibbler' not in styles:styles=['Nibbler',*styles]
         else:styles=['Nibbler']+[name for name in styles if name!='Nibbler']
@@ -638,6 +660,21 @@ class App:
         if self.board_view.get()=='3D':self.last_3d_style=self.piece_style.get()
         else:self.last_2d_style=self.piece_style.get()
         self.images.clear();self.draw()
+    def _load_piece_image(self,key):
+        style=self.piece_style.get()
+        folders=[os.path.join(ROOT,'assets','lucas_styles',style)]
+        if style=='Nibbler':folders.insert(0,os.path.join(ROOT,'assets'))
+        folders.append(os.path.join(ROOT,'assets'))
+        for folder in folders:
+            path=os.path.join(folder,key+'.png')
+            if not os.path.isfile(path):continue
+            try:
+                source=tk.PhotoImage(file=path)
+                factor=max(1,round(max(source.width(),source.height())/max(1,self.square)))
+                return source.subsample(factor,factor) if factor>1 else source
+            except (tk.TclError,OSError):
+                continue
+        return None
     def select_board_palette(self,event=None):
         colors=self.BOARD_PALETTES.get(self.board_palette.get())
         if colors:self.set_board_colors(*colors)
@@ -930,13 +967,22 @@ class App:
                 if sq==self.selected:c.create_rectangle(x+2,y+2,x+s-2,y+s-2,outline='#e47e22',width=4)
                 p=self.board.piece_at(sq)
                 if p:
-                    key=p.symbol() if p.color else '_'+p.symbol().upper()
                     # Nibbler uses uppercase white piece, underscore-prefixed black piece.
                     key=p.symbol().upper() if p.color else '_'+p.symbol().upper()
                     if key not in self.images:
-                        folder=os.path.join(ROOT,'assets') if self.piece_style.get()=='Nibbler' else os.path.join(ROOT,'assets','lucas_styles',self.piece_style.get())
-                        self.images[key]=tk.PhotoImage(file=os.path.join(folder,key+'.png')).subsample(4,4)
-                    c.create_image(x+s//2,y+s//2,image=self.images[key])
+                        self.images[key]=self._load_piece_image(key)
+                    if self.images[key] is not None:
+                        c.create_image(x+s//2,y+s//2,image=self.images[key])
+                    else:
+                        # Keep every piece visible even if an optional sprite
+                        # was omitted from a user's installation.
+                        fill='#f8f5e8' if p.color else '#202632'
+                        ink='#17202a' if p.color else '#f5f5f5'
+                        d=s*.68
+                        c.create_oval(x+(s-d)/2,y+(s-d)/2,x+(s+d)/2,y+(s+d)/2,
+                                      fill=fill,outline=ink,width=2)
+                        c.create_text(x+s//2,y+s//2,text=p.symbol().upper(),fill=ink,
+                                      font=('Arial',max(14,int(s*.42)),'bold'))
                 if col==0:c.create_text(x+9,y+12,text=str(8-row),fill='#354139')
                 if row==7:c.create_text(x+s-10,y+s-10,text=chr(97+col),fill='#354139')
         self.draw_arrows()
@@ -2164,8 +2210,13 @@ class App:
     def close(self):self.stop();self.w.destroy()
 
 def show_splash(root):
-    """Black splash with the fox logo, then fade into the main window."""
-    logo_path=os.path.join(ROOT,'assets','splash_logo.png')
+    """Show the bundled RoboChess splash without requiring Pillow."""
+    candidates=(
+        os.path.join(ROOT,'assets','splash_logo.png'),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)),'assets','splash_logo.png'),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)),'splash_logo.png'),
+    )
+    logo_path=next((path for path in candidates if os.path.isfile(path)),None)
     root.withdraw()
     splash=tk.Toplevel(root)
     splash.overrideredirect(True)
@@ -2178,17 +2229,20 @@ def show_splash(root):
     screen_w=splash.winfo_screenwidth(); screen_h=splash.winfo_screenheight()
     splash.geometry(f'{width}x{height}+{(screen_w-width)//2}+{(screen_h-height)//2}')
     holder={'image':None}
-    if os.path.isfile(logo_path):
+    if logo_path:
         try:
-            from PIL import Image, ImageTk
-            image=Image.open(logo_path).convert('RGBA')
-            image.thumbnail((1040,640), Image.Resampling.LANCZOS)
-            holder['image']=ImageTk.PhotoImage(image)
-            tk.Label(splash,image=holder['image'],bg='black').pack()
+            image=tk.PhotoImage(file=logo_path)
+            factor=max(1,math.ceil(max(image.width()/1040,image.height()/640)))
+            if factor>1:image=image.subsample(factor,factor)
+            holder['image']=image
+            label=tk.Label(splash,image=image,bg='black',borderwidth=0)
+            label.image=image
+            label.pack(expand=True)
         except Exception:
-            tk.Label(splash,text='ROBOCHESS',fg='#3ad0ff',bg='black',font=('Arial',28,'bold')).pack(pady=80)
+            holder['image']=None
+            tk.Label(splash,text='ROBOCHESS',fg='#3ad0ff',bg='black',font=('Arial',28,'bold')).pack(expand=True)
     else:
-        tk.Label(splash,text='ROBOCHESS',fg='#3ad0ff',bg='black',font=('Arial',28,'bold')).pack(pady=80)
+        tk.Label(splash,text='ROBOCHESS',fg='#3ad0ff',bg='black',font=('Arial',28,'bold')).pack(expand=True)
     state={'alpha':1.0}
     def fade():
         state['alpha']=round(state['alpha']-0.08,2)
