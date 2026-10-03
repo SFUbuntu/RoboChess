@@ -1,0 +1,3 @@
+Los SVG viejos de rey y caballo tenian cigarrillo y chocaban con los PNG corregidos.
+wk.svg, bk.svg, wn.svg y bn.svg ahora usan las piezas aptas para ninos de lucas_styles/Freak.
+El programa carga los PNG de assets/lucas_styles/Freak.
