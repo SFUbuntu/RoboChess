@@ -516,7 +516,7 @@ class App:
         ttk.Combobox(row,textvariable=self.side_to_move,values=('White','Black'),state='readonly',width=8).pack(side='left',padx=6)
         ttk.Button(row,text='Set FEN',command=lambda:(self.set_fen(),win.destroy())).pack(side='left',padx=8)
         ttk.Button(row,text=self.T('Cancelar','Cancel'),command=win.destroy).pack(side='right')
-    PIECE_3D=('Staunton 3D','Cool Arcade')
+    PIECE_3D=('Staunton 3D','Cool Arcade','Olympus Gods')
     def _piece_style_names(self):
         required={f'{color}{piece}.png' for color in ('','_') for piece in ('K','Q','R','B','N','P')}
         style_root=os.path.join(ROOT,'assets','lucas_styles')
@@ -553,7 +553,7 @@ class App:
         styles=self._piece_style_names()
         self.settings_style_selector=ttk.Combobox(row,textvariable=self.piece_style,values=styles,state='readonly',width=28)
         self.settings_style_selector.pack(side='left');self.settings_style_selector.bind('<<ComboboxSelected>>',self.change_pieces)
-        ttk.Label(frame,text=self.T('En 3D puedes elegir Staunton 3D o Cool Arcade. En 2D puedes elegir Nibbler o cualquier otro set.','3D can use Staunton 3D or Cool Arcade. 2D can use Nibbler or any other set.')).pack(anchor='w',pady=(0,8))
+        ttk.Label(frame,text=self.T('En 3D puedes elegir Staunton 3D, Cool Arcade u Olympus Gods. En 2D puedes elegir Nibbler o cualquier otro set.','3D can use Staunton 3D, Cool Arcade, or Olympus Gods. 2D can use Nibbler or any other set.')).pack(anchor='w',pady=(0,8))
         ttk.Label(frame,text=self.T('Colores del tablero','Board colors')).pack(anchor='w')
         colorrow=ttk.Frame(frame);colorrow.pack(anchor='w',fill='x',pady=4)
         palettes=ttk.Combobox(colorrow,textvariable=self.board_palette,values=(*self.BOARD_PALETTES,'Personalizar / Custom'),state='readonly',width=30)
