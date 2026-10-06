@@ -1,0 +1,2 @@
+The source includes the THC chess library (thc.h and thc.cpp), Copyright 2010-2020 Bill Forster, under the MIT License. See LICENSE-THC.txt.
+The original Retro Sargon x86 assembly is not included in this package. This engine has its own C++ search and is an independent Sargon-inspired implementation.
