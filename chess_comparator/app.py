@@ -181,6 +181,7 @@ class App:
         self.quad=None;self.quad_window=None;self.quad_summary=None;self.quad_round_button=None;self.quad_launch=False
         self.engine_match_events=queue.Queue();self.engine_match_token=0;self.engine_match_stop=None;self.engine_match_thread=None
         self.engine_match_window=None;self.engine_match_games=[];self.engine_match_running=False
+        self.dgt_events=queue.Queue();self.dgt_link=None;self.dgt_port=''
         self.editor_mode=False;self.editor_piece=None;self.editor_saved_board=None;self.editor_choice=tk.StringVar(value='K')
         self.lichess_events=queue.Queue();self.lichess_games=[];self.database_games=[];self.lichess_username=tk.StringVar();self.database_label=tk.StringVar(value='Sin base PGN cargada / No PGN database loaded')
         self.review_game=None;self.review_ply=0;self.review_label=tk.StringVar(value='—')
@@ -394,6 +395,9 @@ class App:
         settings.add_command(label=self.T('Configurar partida…','Game setup…'),command=self.game_setup_dialog)
         helpmenu=tk.Menu(bar,tearoff=0);bar.add_cascade(label=self.T('Ayuda','Help'),menu=helpmenu)
         helpmenu.add_command(label=self.T('Atajos de teclado…','Keyboard Shortcuts…'),command=self.keyboard_shortcuts_dialog)
+        boardmenu=tk.Menu(bar,tearoff=0);bar.add_cascade(label=self.T('Tablero DGT','DGT Board'),menu=boardmenu)
+        boardmenu.add_command(label=self.T('Conectar tablero DGT…','Connect DGT board…'),command=self.connect_dgt)
+        boardmenu.add_command(label=self.T('Desconectar tablero DGT','Disconnect DGT board'),command=self.disconnect_dgt)
         if old:
             try:old.destroy()
             except tk.TclError:pass
@@ -2500,8 +2504,65 @@ class App:
                         joke={'Crafty':('My pieces are hungry!','I think I hid my tail poorly!','My tail says I should think.'),'Stockfish':('I swim with an advantage today!','I need a life preserver!','I will not bite the hook yet.'),'RoboChess':('Systems green: the enemy king is under pressure!','My circuits request a strategic retreat!','Calculating… coffee would be a hardware upgrade!')}[opponent][0 if engine_cp>120 else 1 if engine_cp< -120 else 2]
                     self.mood.set(f'{opponent}: {face} {mood}. {joke}')
         except queue.Empty:pass
+    def connect_dgt(self):
+        import dgt_link
+        port=simpledialog.askstring(self.T('Tablero DGT','DGT board'),self.T('Puerto serial, o vacío para buscar COM y USB.','Serial port, or leave empty to scan COM and USB.'),initialvalue=self.dgt_port,parent=self.w)
+        if port is None:return
+        ports=[port.strip()] if port and port.strip() else dgt_link.default_ports()
+        self.disconnect_dgt()
+        self.dgt_link=dgt_link.DgtLink(self.dgt_events)
+        self.dgt_port=port.strip() if port else ''
+        self.dgt_link.start(ports)
+        self.status.set(self.T('Buscando tablero DGT…','Looking for a DGT board…'))
+    def disconnect_dgt(self):
+        if self.dgt_link:
+            self.dgt_link.stop_link();self.dgt_link=None
+        self.status.set(self.T('Tablero DGT desconectado.','DGT board disconnected.'))
+    def poll_dgt(self):
+        try:
+            while True:
+                kind,payload=self.dgt_events.get_nowait()
+                if kind=='connected':
+                    self.status.set(self.T(f'Tablero DGT conectado en {payload}.','DGT board connected on {payload}.'))
+                elif kind=='disconnected':
+                    self.status.set(self.T('El tablero DGT se desconectó.','The DGT board disconnected.'))
+                elif kind=='error':
+                    self.status.set(self.T('DGT: ','DGT: ')+str(payload))
+                elif kind=='board':
+                    self.apply_dgt_board(payload)
+        except queue.Empty:
+            pass
+    def apply_dgt_board(self,physical):
+        try:
+            import chess
+            target=physical if isinstance(physical,chess.Board) else chess.Board(str(physical))
+        except Exception as err:
+            self.status.set(self.T('No se pudo leer la posición DGT: ','Could not read the DGT position: ')+str(err));return
+        if target.board_fen()==self.board.board_fen():return
+        legal=[move for move in self.board.legal_moves if self.board.copy().push(move) or True]
+        matched=[]
+        for move in self.board.legal_moves:
+            trial=self.board.copy();trial.push(move)
+            if trial.board_fen()==target.board_fen():matched.append(move)
+        if len(matched)==1:
+            self.selected=None
+            class Event: pass
+            self.push_dgt_move(matched[0]);return
+        self.status.set(self.T('La posición del tablero DGT no coincide con una jugada legal. Acomoda las piezas o usa Set FEN.','The DGT position does not match one legal move. Set the pieces or use Set FEN.'))
+    def push_dgt_move(self,move):
+        if self.playing and (self.play_busy or self.board.turn!=self.human_color):
+            self.status.set(self.T('Espera: no es tu turno en el tablero DGT.','Wait: it is not your turn on the DGT board.'));return
+        before=self.board.copy();was_human=self.playing and self.board.turn==self.human_color
+        if was_human and not self.complete_clock_move(self.board.turn):return
+        self.play_sound(self.sound_for_move(self.board,move))
+        self.stop();self.results={};self.review_game=None;self.board.push(move)
+        self.status.set(self.T(f'Tablero DGT: {move.uci()}','DGT board: {move.uci()}'));self.draw()
+        if was_human and self.profile:
+            try:profile_store.record_move(self.profile_data,self.profile,self.phase_key(before))
+            except OSError as err:self.status.set(str(err))
+        if was_human:self.w.after(200,self.computer_turn)
     def poll(self):
-        self.poll_play();self.poll_coach();self.poll_lichess();self.poll_lichess_puzzles();self.poll_engine_match()
+        self.poll_play();self.poll_coach();self.poll_lichess();self.poll_lichess_puzzles();self.poll_engine_match();self.poll_dgt()
         try:
             while True:
                 token,best,error=self.challenge_events.get_nowait()
