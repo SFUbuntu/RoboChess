@@ -1,76 +1,113 @@
-"""Optional DGT electronic board link for RoboChess.
+"""Modern Python 3.10+ bridge for a DGT e-board.
 
-Requires the GPL library python-asyncdgt plus pyserial and pyee:
-    pip install asyncdgt pyserial pyee
+Uses the locally vendored, Python-3.12-compatible asyncdgt protocol driver.
+The event queue is consumed by RoboChess's Tk main thread.
 """
+from __future__ import annotations
+
 import asyncio
-import queue
 import threading
 
 
 class DgtLink:
-    def __init__(self, events):
+    def __init__(self, events, stable_ms=180):
         self.events = events
+        self.stable_ms = max(80, int(stable_ms))
         self.thread = None
         self.loop = None
         self.connection = None
-        self.stop = threading.Event()
+        self._stop_requested = threading.Event()
 
     def start(self, ports):
         self.stop_link()
-        self.stop.clear()
-        self.thread = threading.Thread(target=self._run, args=(ports,), daemon=True)
+        self._stop_requested.clear()
+        self.thread = threading.Thread(
+            target=self._run, args=(tuple(ports),), name="RoboChess-DGT", daemon=True
+        )
         self.thread.start()
 
     def stop_link(self):
-        self.stop.set()
+        self._stop_requested.set()
         loop = self.loop
         if loop and loop.is_running():
             loop.call_soon_threadsafe(loop.stop)
-        if self.thread and self.thread.is_alive():
-            self.thread.join(timeout=2)
+        thread = self.thread
+        if thread and thread.is_alive() and thread is not threading.current_thread():
+            thread.join(timeout=5)
         self.thread = None
         self.loop = None
         self.connection = None
 
     def _run(self, ports):
-        try:
-            import asyncdgt
-        except ImportError as err:
-            self.events.put(('error', 'Falta python-asyncdgt. Instala asyncdgt, pyserial y pyee. / Missing python-asyncdgt. Install asyncdgt, pyserial and pyee. ' + str(err)))
-            return
         loop = asyncio.new_event_loop()
+        connection = None
         self.loop = loop
         asyncio.set_event_loop(loop)
         try:
-            connection = asyncdgt.auto_connect(loop, ports)
-        except Exception as err:
-            self.events.put(('error', str(err)))
-            return
-        self.connection = connection
+            import asyncdgt
 
-        @connection.on('connected')
-        def on_connected(port):
-            self.events.put(('connected', str(port)))
+            connection = asyncdgt.auto_connect(loop, list(ports))
+            self.connection = connection
+            pending_board = {"fen": None, "handle": None}
 
-        @connection.on('disconnected')
-        def on_disconnected():
-            self.events.put(('disconnected', ''))
+            @connection.on("connected")
+            def on_connected(port):
+                self.events.put(("connected", str(port)))
 
-        @connection.on('board')
-        def on_board(board):
-            self.events.put(('board', board))
+            @connection.on("disconnected")
+            def on_disconnected():
+                self.events.put(("disconnected", ""))
 
-        try:
+            def publish_stable_board():
+                fen = pending_board["fen"]
+                pending_board["handle"] = None
+                if fen:
+                    self.events.put(("board", fen))
+
+            def queue_stable_board(fen):
+                pending_board["fen"] = fen
+                handle = pending_board["handle"]
+                if handle:
+                    handle.cancel()
+                pending_board["handle"] = loop.call_later(
+                    self.stable_ms / 1000.0, publish_stable_board
+                )
+
+            @connection.on("board")
+            def on_board(board):
+                try:
+                    fen = board.board_fen()
+                except Exception as err:
+                    self.events.put(("error", "No se pudo leer el tablero DGT: " + str(err)))
+                    return
+                # DGT field updates may report the board while a piece is in
+                # transit. Only pass a position to Tk after it settles briefly.
+                loop.call_soon_threadsafe(queue_stable_board, fen)
+
             loop.run_forever()
+        except Exception as err:
+            self.events.put(("error", f"DGT: {type(err).__name__}: {err}"))
         finally:
+            if connection is not None:
+                try:
+                    connection.close()
+                except Exception as err:
+                    self.events.put(("error", f"DGT disconnect: {err}"))
             try:
-                connection.close()
+                pending = asyncio.all_tasks(loop)
+                for task in pending:
+                    task.cancel()
+                if pending and not loop.is_closed():
+                    loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
             except Exception:
                 pass
-            loop.close()
+            if not loop.is_closed():
+                loop.close()
+            asyncio.set_event_loop(None)
             self.loop = None
+            self.connection = None
 
 
 def default_ports():
-    return ['COM%s' % n for n in range(1, 33)] + ['/dev/ttyACM*', '/dev/ttyUSB*', '/dev/tty.usbmodem*']
+    """Globs accepted by asyncdgt; serial port enumeration handles COM names."""
+    return ["COM*", "/dev/ttyACM*", "/dev/ttyUSB*", "/dev/cu.*", "/dev/tty.*"]

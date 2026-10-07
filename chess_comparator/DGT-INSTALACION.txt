@@ -1,0 +1,26 @@
+RoboChess — conexión DGT (Windows)
+==================================
+
+1. Instala el controlador oficial que corresponda a tu DGT Smart Board.
+   Si ya aparece en el Administrador de dispositivos como puerto COM y funciona
+   en ChessBase, no hace falta reinstalarlo.
+2. Cierra ChessBase u otro programa que pueda tener abierto el puerto COM.
+3. Instala las dependencias del enlace (usa el comando correspondiente a la
+   carpeta desde la que ejecutarás RoboChess):
+
+   Desde la carpeta principal del proyecto:
+       py -m pip install -r chess_comparator/requirements-dgt.txt
+
+   Desde la carpeta chess_comparator:
+       py -m pip install -r requirements-dgt.txt
+
+4. Ejecuta RoboChess. Abre Tablero DGT > Conectar tablero DGT y escribe el puerto
+   que muestra Windows, por ejemplo COM3. Déjalo vacío para buscar los puertos.
+5. Para salir, desconecta el tablero desde el menú o cierra RoboChess.
+
+La conexión recibe la posición física del tablero. Para aplicar una jugada, las
+piezas deben terminar en una posición legal a partir de la posición actual de
+RoboChess. Esta versión no mueve físicamente las piezas ni sincroniza el reloj.
+
+El protocolo asyncdgt incluido en vendor/asyncdgt conserva su licencia GPL-3.0;
+consulta vendor/asyncdgt/LICENSE.txt antes de redistribuir RoboChess.

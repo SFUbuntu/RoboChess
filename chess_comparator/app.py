@@ -12,7 +12,8 @@ def _resource_root():
         return meipass or exe_dir
     script_dir = os.path.dirname(os.path.abspath(__file__))
     parent_dir = os.path.dirname(script_dir)
-    candidates = (script_dir, parent_dir, os.path.join(parent_dir, 'chess_comparator'))
+    candidates = (script_dir, os.path.join(script_dir, 'chess_comparator'),
+                 parent_dir, os.path.join(parent_dir, 'chess_comparator'))
     for candidate in candidates:
         if (os.path.isfile(os.path.join(candidate, 'profile_store.py'))
                 and os.path.isdir(os.path.join(candidate, 'assets'))):
@@ -2505,8 +2506,12 @@ class App:
                     self.mood.set(f'{opponent}: {face} {mood}. {joke}')
         except queue.Empty:pass
     def connect_dgt(self):
-        import dgt_link
-        port=simpledialog.askstring(self.T('Tablero DGT','DGT board'),self.T('Puerto serial, o vacío para buscar COM y USB.','Serial port, or leave empty to scan COM and USB.'),initialvalue=self.dgt_port,parent=self.w)
+        try:
+            import dgt_link
+        except Exception as err:
+            messagebox.showerror(self.T('Tablero DGT','DGT board'),self.T('No se pudo cargar el módulo DGT: ','Could not load the DGT module: ')+str(err))
+            return
+        port=simpledialog.askstring(self.T('Tablero DGT','DGT board'),self.T('Puerto serial, por ejemplo COM3. Déjalo vacío para buscar.','Serial port, for example COM3. Leave blank to scan.'),initialvalue=self.dgt_port,parent=self.w)
         if port is None:return
         ports=[port.strip()] if port and port.strip() else dgt_link.default_ports()
         self.disconnect_dgt()
@@ -2535,20 +2540,29 @@ class App:
     def apply_dgt_board(self,physical):
         try:
             import chess
-            target=physical if isinstance(physical,chess.Board) else chess.Board(str(physical))
+            if hasattr(physical,'board_fen'):
+                placement=physical.board_fen()
+            else:
+                # Accept either a placement FEN or a complete FEN from a
+                # future DGT backend; asyncdgt.Board itself is not chess.Board.
+                placement=str(physical).strip().split()[0]
+            probe=chess.Board(None)
+            probe.set_board_fen(placement)
         except Exception as err:
             self.status.set(self.T('No se pudo leer la posición DGT: ','Could not read the DGT position: ')+str(err));return
-        if target.board_fen()==self.board.board_fen():return
-        legal=[move for move in self.board.legal_moves if self.board.copy().push(move) or True]
+        if placement==self.board.board_fen():return
+        if self.editor_mode or self.puzzle_active or self.review_game is not None or self.engine_match_running or (self.quad and self.quad.get('active')):
+            self.status.set(self.T('Termina el modo actual antes de mover desde el tablero DGT.','Finish the current mode before entering moves from the DGT board.'))
+            return
         matched=[]
         for move in self.board.legal_moves:
             trial=self.board.copy();trial.push(move)
-            if trial.board_fen()==target.board_fen():matched.append(move)
+            if trial.board_fen()==placement:matched.append(move)
         if len(matched)==1:
             self.selected=None
-            class Event: pass
             self.push_dgt_move(matched[0]);return
-        self.status.set(self.T('La posición del tablero DGT no coincide con una jugada legal. Acomoda las piezas o usa Set FEN.','The DGT position does not match one legal move. Set the pieces or use Set FEN.'))
+        # Intermediate piece lifts, captures, and adjustments are normal DGT
+        # updates. Keep the current game intact until one legal position settles.
     def push_dgt_move(self,move):
         if self.playing and (self.play_busy or self.board.turn!=self.human_color):
             self.status.set(self.T('Espera: no es tu turno en el tablero DGT.','Wait: it is not your turn on the DGT board.'));return
@@ -2560,7 +2574,16 @@ class App:
         if was_human and self.profile:
             try:profile_store.record_move(self.profile_data,self.profile,self.phase_key(before))
             except OSError as err:self.status.set(str(err))
-        if was_human:self.w.after(200,self.computer_turn)
+        if self.board.is_game_over(claim_draw=True):
+            self.final_result=self.board.result(claim_draw=True);self.playing=False
+            self.stop_clock(settle=False);self.clock_selector.configure(state='readonly')
+            self.record_quad_result(self.final_result)
+            self.status.set(self.T('Partida terminada: ','Game over: ')+self.final_result)
+            self._sync_play_chrome()
+        elif was_human:
+            if self.coach_enabled.get() or self.profile:self.request_coach('feedback',before,move)
+            self.start_clock(self.board.turn)
+            self.w.after(100,self.computer_turn)
     def poll(self):
         self.poll_play();self.poll_coach();self.poll_lichess();self.poll_lichess_puzzles();self.poll_engine_match();self.poll_dgt()
         try:
@@ -2690,6 +2713,7 @@ class App:
         self.status.set('Saved '+path)
     def close(self):
         if self.engine_match_stop:self.engine_match_stop.set()
+        self.disconnect_dgt()
         self.stop();self.w.destroy()
 
 def show_splash(root):

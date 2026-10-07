@@ -1,0 +1,4 @@
+# Dependencies for the optional DGT e-board feature.
+# asyncdgt is vendored in vendor/asyncdgt and updated for modern asyncio.
+pyserial>=3.5
+pyee>=11

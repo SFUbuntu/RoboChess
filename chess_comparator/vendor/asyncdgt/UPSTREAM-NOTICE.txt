@@ -1,0 +1,7 @@
+Based on python-asyncdgt by Niklas Fiekas.
+Upstream: https://github.com/niklasf/python-asyncdgt
+Upstream license: GNU GPL version 3 or later; see LICENSE.txt.
+
+Local changes: legacy generator-based asyncio coroutines were converted to
+async/await, obsolete asyncio loop parameters were removed, and the pySerial
+write_timeout attribute is used for modern pySerial versions.
