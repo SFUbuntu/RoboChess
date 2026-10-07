@@ -1,0 +1,12 @@
+Sargon Tal-Fischer 64-bit con libro de aperturas
+
+Windows:
+1. Extrae esta carpeta completa.
+2. Abre x64 Native Tools Command Prompt for Visual Studio.
+3. Entra en la carpeta y ejecuta build_sargon_tal_x64.bat.
+4. Agrega Sargon-Tal-Fischer-x64.exe a RoboChess como motor UCI.
+5. Mantén Sargon-Tal-Fischer.bin junto al ejecutable. El motor busca el libro junto a sí mismo.
+
+El libro ya viene generado desde Sargon_Tal_Fischer.pgn. Para regenerarlo después de editar el PGN, ejecuta build_book_from_pgn.bat.
+
+El formato .bin de esta versión es propio de Sargon; no es compatible directamente con book.bin de Crafty ni con Polyglot. El aprendizaje de partidas no está activado todavía.

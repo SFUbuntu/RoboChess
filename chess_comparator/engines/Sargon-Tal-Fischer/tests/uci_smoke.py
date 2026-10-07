@@ -1,5 +1,6 @@
 import subprocess
 import sys
+from pathlib import Path
 
 
 def send(proc, command):
@@ -34,6 +35,8 @@ def main():
         send(proc, "isready")
         assert proc.stdout.readline().strip() == "readyok"
 
+        # Exercise search independently of the optional opening book.
+        send(proc, "setoption name OwnBook value false")
         send(proc, "setoption name Hash value 32")
         send(proc, "setoption name Max Depth value 1")
         send(proc, "setoption name Style value Tal")
@@ -52,11 +55,21 @@ def main():
         send(proc, "go depth 3")
         capture = read_until(proc, "bestmove")
         assert capture[-1] == "bestmove b1b2", capture
+
+        book_file = Path("Sargon-Tal-Fischer.bin")
+        if book_file.exists():
+            send(proc, "setoption name Book File value " + str(book_file.resolve()))
+            send(proc, "setoption name OwnBook value true")
+            send(proc, "position startpos")
+            send(proc, "go depth 1")
+            book = read_until(proc, "bestmove")
+            assert any("opening book move" in row for row in book), book
+            assert book[-1].split()[1] in {"d2d4", "e2e4", "c2c4", "g1f3", "b1c3"}, book
         send(proc, "quit")
         proc.wait(timeout=10)
         assert proc.returncode == 0
         assert proc.stderr.read() == ""
-        print("UCI handshake, Hash 32 MB, depth control, mate-in-1, and tactical capture: PASS")
+        print("UCI handshake, Hash 32 MB, depth control, mate-in-1, tactical capture, and opening book: PASS")
     finally:
         if proc.poll() is None:
             proc.kill()

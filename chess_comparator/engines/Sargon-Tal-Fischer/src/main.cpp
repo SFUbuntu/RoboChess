@@ -6,13 +6,26 @@
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>
+#include <fstream>
+#include <filesystem>
+#include <iterator>
 #include <limits>
 #include <mutex>
+#include <random>
 #include <sstream>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <vector>
-#include "thc.h"
+#include "book_format.h"
+#ifdef _WIN32
+#define NOMINMAX
+#include <windows.h>
+#elif defined(__linux__)
+#include <unistd.h>
+#elif defined(__APPLE__)
+#include <mach-o/dyld.h>
+#endif
 
 namespace {
 using Clock = std::chrono::steady_clock;
@@ -83,6 +96,23 @@ uint64_t position_key(thc::ChessPosition& p) {
     return k;
 }
 
+std::filesystem::path executable_directory() {
+#ifdef _WIN32
+    char path[32768]{};
+    const DWORD length = GetModuleFileNameA(nullptr, path, static_cast<DWORD>(sizeof(path)));
+    if (length > 0 && length < sizeof(path)) return std::filesystem::path(path).parent_path();
+#elif defined(__linux__)
+    char path[4096]{};
+    const ssize_t length = readlink("/proc/self/exe", path, sizeof(path)-1);
+    if (length > 0) { path[length] = '\0'; return std::filesystem::path(path).parent_path(); }
+#elif defined(__APPLE__)
+    char path[4096]{};
+    uint32_t size = static_cast<uint32_t>(sizeof(path));
+    if (_NSGetExecutablePath(path, &size) == 0) return std::filesystem::path(path).parent_path();
+#endif
+    return {};
+}
+
 struct SearchLimits {
     int depth = 0;
     int movetime = 0;
@@ -98,6 +128,13 @@ public:
     int aggression = 72; // Tal initiative balanced by Fischer-style material discipline.
     std::string style = "Tal-Fischer";
     int move_overhead = 40;
+    bool own_book = true;
+    bool book_random = true;
+    int book_depth = 24;
+    std::string book_file = "Sargon-Tal-Fischer.bin";
+    struct BookMove { std::string uci; uint16_t weight; };
+    std::unordered_map<uint64_t, std::vector<BookMove>> book;
+    std::mt19937_64 book_rng{std::random_device{}()};
     std::atomic<bool> stop{false};
     std::thread worker;
     std::vector<TTEntry> tt;
@@ -112,7 +149,7 @@ public:
     int history[2][64][64]{};
     int seldepth = 0;
 
-    Engine() { resize_hash(hash_mb); }
+    Engine() { resize_hash(hash_mb); load_book(); }
     ~Engine() { stop_search(); }
 
     void resize_hash(int mb) {
@@ -127,6 +164,66 @@ public:
         std::fill(tt.begin(), tt.end(), TTEntry{});
         tt_used = 0;
         ++age;
+    }
+    bool load_book() {
+        book.clear();
+        std::ifstream in(book_file, std::ios::binary);
+        if (!in && !std::filesystem::path(book_file).is_absolute()) {
+            const auto adjacent = executable_directory() / book_file;
+            in.clear();
+            in.open(adjacent, std::ios::binary);
+        }
+        if (!in) return false;
+        char magic[sizeof(sargon_book::MAGIC)];
+        uint32_t version = 0, count = 0;
+        if (!in.read(magic, sizeof(magic)) ||
+            !std::equal(std::begin(magic), std::end(magic), std::begin(sargon_book::MAGIC)) ||
+            !sargon_book::read_u32(in, version) || version != sargon_book::VERSION ||
+            !sargon_book::read_u32(in, count) || count > sargon_book::MAX_RECORDS) {
+            book.clear(); return false;
+        }
+        for (uint32_t i = 0; i < count; ++i) {
+            uint64_t key = 0; char move[6]{}; uint16_t weight = 0;
+            if (!sargon_book::read_u64(in, key) || !in.read(move, sizeof(move)) ||
+                !sargon_book::read_u16(in, weight)) { book.clear(); return false; }
+            move[sizeof(move)-1] = '\0';
+            if (move[0] && weight) book[key].push_back({move, weight});
+        }
+        return true;
+    }
+    std::string book_move(thc::ChessRules root, uint16_t& chosen_weight) {
+        chosen_weight = 0;
+        if (!own_book || book.empty()) return {};
+        const int ply = std::max(0, (root.full_move_count - 1) * 2 + (root.white ? 0 : 1));
+        if (ply >= book_depth) return {};
+        const auto it = book.find(sargon_book::position_key(root));
+        if (it == book.end()) return {};
+        std::vector<thc::Move> legal;
+        root.GenLegalMoveList(legal);
+        std::vector<BookMove> candidates;
+        uint64_t total = 0;
+        for (const auto& candidate : it->second) {
+            const bool is_legal = std::any_of(legal.begin(), legal.end(), [&](const thc::Move& m) {
+                thc::Move move = m;
+                return move.TerseOut() == candidate.uci;
+            });
+            if (is_legal) { candidates.push_back(candidate); total += candidate.weight; }
+        }
+        if (candidates.empty()) return {};
+        size_t selected = 0;
+        if (book_random && total > 0) {
+            std::uniform_int_distribution<uint64_t> pick(1, total);
+            uint64_t value = pick(book_rng);
+            for (size_t i = 0; i < candidates.size(); ++i) {
+                if (value <= candidates[i].weight) { selected = i; break; }
+                value -= candidates[i].weight;
+            }
+        } else {
+            for (size_t i = 1; i < candidates.size(); ++i)
+                if (candidates[i].weight > candidates[selected].weight) selected = i;
+        }
+        chosen_weight = candidates[selected].weight;
+        return candidates[selected].uci;
     }
     void stop_search() {
         stop.store(true, std::memory_order_relaxed);
@@ -363,6 +460,13 @@ public:
     }
     void start_search(const thc::ChessRules& root, SearchLimits limits) {
         stop_search(); stop.store(false, std::memory_order_relaxed); ++age;
+        uint16_t book_weight = 0;
+        const std::string opening_move = book_move(root, book_weight);
+        if (!opening_move.empty()) {
+            output("info string opening book move " + opening_move + " weight " + std::to_string(book_weight) + "\n");
+            output("bestmove " + opening_move + "\n");
+            return;
+        }
         worker = std::thread([this, root, limits]() mutable {
             board = root; nodes = 0; seldepth = 0; pv_len.fill(0);
             for (auto& row : killers) for (auto& m : row) m.Invalid();
@@ -455,6 +559,10 @@ void run_uci() {
                    "option name Style type combo default Tal-Fischer var Tal-Fischer var Tal var Fischer\n"
                    "option name Aggression type spin default 72 min 0 max 100\n"
                    "option name Move Overhead type spin default 40 min 0 max 500\n"
+                   "option name OwnBook type check default true\n"
+                   "option name Book File type string default Sargon-Tal-Fischer.bin\n"
+                   "option name Book Depth type spin default 24 min 0 max 80\n"
+                   "option name Book Random type check default true\n"
                    "option name Clear Hash type button\nuciok\n");
         } else if (line == "isready") output("readyok\n");
         else if (line == "ucinewgame") { engine.stop_search(); thc::ChessRules reset; engine.board = reset; engine.clear_hash(); }
@@ -474,6 +582,10 @@ void run_uci() {
             else if (name == "Style" && (value == "Tal-Fischer" || value == "Tal" || value == "Fischer")) engine.style=value;
             else if (name == "Aggression") engine.aggression=std::max(0,std::min(100,std::atoi(value.c_str())));
             else if (name == "Move Overhead") engine.move_overhead=std::max(0,std::min(500,std::atoi(value.c_str())));
+            else if (name == "OwnBook") engine.own_book=(value == "true" || value == "1");
+            else if (name == "Book File") { engine.book_file=value; engine.load_book(); }
+            else if (name == "Book Depth") engine.book_depth=std::max(0,std::min(80,std::atoi(value.c_str())));
+            else if (name == "Book Random") engine.book_random=(value == "true" || value == "1");
             else if (name == "Clear Hash") engine.clear_hash();
         } else if (line.rfind("position", 0) == 0) {
             engine.stop_search();

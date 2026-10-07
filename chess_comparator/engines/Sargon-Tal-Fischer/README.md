@@ -11,6 +11,7 @@ Motor experimental para RoboChess, creado como una reinterpretación moderna e i
 - Búsqueda iterativa alpha-beta, quiescence para capturas y jaques, ordenamiento de jugadas, tabla hash, extensiones limitadas de jaque, killer/history y reducciones tardías.
 - Opción `Aggression` (0–100): ajusta la valoración de presión al rey, cercanía de atacantes, líneas abiertas e iniciativa. El motor favorece desequilibrios y sacrificios cuando su cálculo encuentra compensación; no introduce sacrificios aleatorios.
 - Perfil `Style`: `Tal-Fischer` (predeterminado), `Tal` o `Fischer`; la opción cambia cuánto pesa la iniciativa y la presión al rey, sin alterar las reglas ni descartar material al azar.
+- Libro de aperturas binario de Sargon. El archivo incluido se genera desde las 3,258 partidas PGN de Tal y Fischer y cubre los primeros 24 plies. Sargon verifica que la jugada del libro sea legal y, si una posición no aparece, continúa su búsqueda normal.
 - Evaluación base y reglas de ajedrez proceden de THC (`thc.h`/`thc.cpp`), una biblioteca publicada por Bill Forster bajo licencia MIT. Se corrigió una copia fuera de límites en la inicialización de su tabla de final. El texto de licencia está en `LICENSE-THC.txt`.
 
 ## Compilar en Windows x64
@@ -18,7 +19,9 @@ Motor experimental para RoboChess, creado como una reinterpretación moderna e i
 1. Instala Visual Studio con el componente **Desktop development with C++**.
 2. Abre **x64 Native Tools Command Prompt for VS**.
 3. Ejecuta `build_sargon_tal_x64.bat`.
-4. El ejecutable `Sargon-Tal-Fischer-x64.exe` queda en esta carpeta.
+4. Se crean `Sargon-Tal-Fischer-x64.exe` y `SargonBookBuilder.exe`.
+5. Para reconstruir el libro a partir del PGN combinado, ejecuta `build_book_from_pgn.bat`.
+6. Mantén `Sargon-Tal-Fischer.bin` junto al motor o indica su ruta en la configuración del motor.
 
 También puedes abrir una terminal x64 y compilar con CMake:
 
@@ -40,7 +43,25 @@ Compila el ejecutable y selecciónalo desde **Load UCI engine / Cargar motor UCI
 - `Style`: `Tal-Fischer`, `Tal` o `Fischer`.
 - `Aggression`: 0–100; valor inicial 72.
 - `Move Overhead`: 0–500 ms; valor inicial 40.
+- `OwnBook`: activa o desactiva el libro.
+- `Book File`: ruta del libro binario de Sargon.
+- `Book Depth`: profundidad máxima de uso del libro en plies; valor inicial 24.
+- `Book Random`: elige entre jugadas del libro según su frecuencia.
 - `Clear Hash`: vacía la tabla.
+
+## Crear el libro desde PGN
+
+El constructor admite una colección PGN como entrada:
+
+```text
+SargonBookBuilder.exe partidas.pgn Sargon-Tal-Fischer.bin 24
+```
+
+El número final es la profundidad máxima en plies. El formato binario `SARGONB1` pertenece a este prototipo y no es compatible directamente con los libros internos de Crafty ni con Polyglot.
+
+## Aprendizaje
+
+Esta versión usa el libro estático generado desde PGN. El aprendizaje persistente todavía no está activado. La siguiente etapa puede guardar en un archivo separado las novedades y resultados de las partidas para ajustar sus pesos y conservar intacto el libro base.
 
 ## Límites actuales
 
