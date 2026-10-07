@@ -40,9 +40,9 @@ def _fatal(title, message):
     sys.exit(1)
 
 try:
-    import threading, queue, platform, math, tempfile, random, time, tkinter as tk, urllib.request, urllib.parse, io, webbrowser
+    import threading, queue, platform, math, tempfile, random, time, tkinter as tk, urllib.request, urllib.parse, io, webbrowser, csv, json
     from pathlib import Path
-    from tkinter import ttk, filedialog, messagebox, colorchooser
+    from tkinter import ttk, filedialog, messagebox, colorchooser, simpledialog
 except Exception:
     _fatal('RoboChess no pudo arrancar / failed to start',
            'Falta tkinter (Tcl/Tk).\n\nInstala Python 3 desde python.org y marca "tcl/tk and IDLE".\nLuego abre INICIAR.bat, no hagas doble clic en app.py.\n\n' + traceback.format_exc())
@@ -58,13 +58,12 @@ try:
     import quad_tournament
     import lichess_puzzles
     import personalities
-    import ui_settings
-    from locale_ui import choose, translate_label
+    from locale_ui import LABELS, SPANISH, choose
 except Exception:
     _fatal('RoboChess no pudo importar módulos', traceback.format_exc())
 
 class App:
-    ENGINE_NAMES=('Stockfish','Crafty','RoboChess')
+    BUILTIN_ENGINE_NAMES=('Stockfish','Crafty','RoboChess')
     ENGINE_COLORS={'Stockfish':'#22a35b','Crafty':'#e77730','RoboChess':'#9b59b6'}
     BOARD_PALETTES={
         'Verde clásico / Classic green':('#eeeed2','#769656'),
@@ -73,20 +72,6 @@ class App:
         'Gris / Gray':('#eeeeee','#777777'),
         'Morado / Purple':('#eee6f5','#8064a2'),
         'Rosa / Pink':('#f7e6ec','#c77b98'),
-    }
-    UI_THEMES={
-        'light':{
-            'window':'#eef2f7','panel':'#ffffff','text':'#1b2430','muted':'#596579',
-            'accent':'#2563eb','accent_text':'#ffffff','button':'#e9eef5','button_hover':'#dce6f3',
-            'input':'#ffffff','border':'#cbd5e1','selection':'#c8dcff','gutter':'#dce2ea',
-            'menu':'#ffffff','menu_hover':'#dbeafe',
-        },
-        'dark':{
-            'window':'#111827','panel':'#1b2430','text':'#edf2f7','muted':'#a8b3c3',
-            'accent':'#2563eb','accent_text':'#ffffff','button':'#2a3544','button_hover':'#35445a',
-            'input':'#111923','border':'#394556','selection':'#244f80','gutter':'#273140',
-            'menu':'#1b2430','menu_hover':'#30425a',
-        },
     }
     TIME_CONTROLS={
         'No clock / Sin reloj (5 s/move)':{'base':None,'increment':0,'delay':0,'increment_until':None},
@@ -103,18 +88,76 @@ class App:
         'Classical/Clásica 90+5 delay':{'base':5400,'increment':0,'delay':5,'increment_until':None},
         'Classical/Clásica 90+30; no inc after/desde move/jugada 40':{'base':5400,'increment':30,'delay':0,'increment_until':39},
     }
+    @property
+    def ENGINE_NAMES(self):
+        return self.BUILTIN_ENGINE_NAMES+tuple(self.custom_engines)
+    @staticmethod
+    def _engine_store_file():
+        if platform.system()=='Windows':
+            base=os.environ.get('APPDATA') or os.path.expanduser('~')
+        else:
+            base=os.environ.get('XDG_CONFIG_HOME') or os.path.join(os.path.expanduser('~'),'.config')
+        return os.path.join(base,'RoboChess','uci_engines.json')
+    def _read_custom_engines(self):
+        try:
+            with open(self._engine_store_file(),encoding='utf-8') as f:data=json.load(f)
+            records=data.get('engines',{}) if isinstance(data,dict) else {}
+            return {str(name):{'path':os.path.abspath(str(record['path'])),
+                               'reported_name':str(record.get('reported_name','UCI engine'))}
+                    for name,record in records.items()
+                    if isinstance(record,dict) and record.get('path')
+                    and str(name).casefold() not in {n.casefold() for n in self.BUILTIN_ENGINE_NAMES}}
+        except (OSError,ValueError,TypeError):
+            return {}
+    def _save_custom_engines(self):
+        target=self._engine_store_file();folder=os.path.dirname(target)
+        os.makedirs(folder,exist_ok=True)
+        temporary=target+'.tmp'
+        with open(temporary,'w',encoding='utf-8') as f:
+            json.dump({'engines':self.custom_engines},f,ensure_ascii=False,indent=2)
+        os.replace(temporary,target)
+    def _refresh_engine_choices(self,select_name=None):
+        names=self.ENGINE_NAMES
+        for widget in (getattr(self,'engine_selector',None),getattr(self,'engine_view_selector',None)):
+            if widget is not None:widget.configure(values=names)
+        if select_name:
+            self.play_engine.set(select_name);self.engine_view.set(select_name)
+        if hasattr(self,'panels') and select_name and select_name not in self.panels:
+            self.panels[select_name]=tk.Text(self.engine_panel_holder,height=8,width=55,wrap='word',state='disabled')
+        if hasattr(self,'engines_menu'):
+            self._rebuild_engine_menu()
+        if select_name:
+            self.show_engine_panel()
+    def _rebuild_engine_menu(self):
+        menu=self.engines_menu;menu.delete(0,'end')
+        for name in self.ENGINE_NAMES:
+            menu.add_command(label=self.T(f'Usar {name} en partida/análisis','Select {name} for play/analysis').format(name=name),
+                             command=lambda n=name:self.select_engine(n))
+            menu.add_command(label=self.T(f'Elegir archivo de {name}…','Choose {name} executable…').format(name=name),
+                             command=lambda n=name:self.choose(n))
+        menu.add_separator()
+        menu.add_command(label=self.T('Agregar motor UCI…','Add UCI Engine…'),command=self.add_uci_engine)
+        menu.add_separator()
+        menu.add_command(label=self.T('Enfrentar dos motores…','Match two engines…'),command=self.engine_match_dialog,accelerator='Ctrl+M')
+    def select_engine(self,name):
+        if name not in self.ENGINE_NAMES:return
+        self.play_engine.set(name);self.engine_view.set(name)
+        self.show_engine_panel()
+        self.status.set(self.T(f'{name} seleccionado. Pulsa Analizar o inicia una partida.',f'{name} selected. Press Analyze or start a game.'))
     def __init__(self, window):
         self.w=window; window.title('RoboChess · Nibbler chess study'); window.geometry('1540x960'); window.minsize(1180,760)
         self.board=chess.Board(); self.events=queue.Queue(); self.epoch=0; self.engines={}; self.selected=None; self.results={}
+        self.custom_engines=self._read_custom_engines()
         self.paths={'Stockfish':'','Crafty':os.path.join(ROOT,'crafty-linux' if platform.system()=='Linux' else 'crafty.exe'),
                     'RoboChess':next((p for p in (os.path.join(ROOT,'robbochess','RoboChess-x64.exe'),os.path.join(ROOT,'robbochess','RoboChess.exe')) if os.path.isfile(p)),'')}
+        self.paths.update({name:record['path'] for name,record in self.custom_engines.items()})
         self.images={}; self.square=70;self.flipped=False;self.playing=False;self.play_busy=False;self._fitting_board=False
         self.play_events=queue.Queue();self.human_color=chess.WHITE;self.game_engine_name='Stockfish'
         self.personality=None;self.personality_launch=False;self.personality_images={}
         self.coach_events=queue.Queue();self.coach_generation=0;self.feedback_pending=False
         self.coach_enabled=tk.BooleanVar(value=False);self.coach_images={}
         self.profile_data=profile_store.load();self.profile=profile_store.find(self.profile_data,self.profile_data.get('active'))
-        self.language=tk.StringVar(value=ui_settings.load_language());self.final_result=None;self.draw_events=queue.Queue();self.draw_offer_pending=False
+        self.language=tk.StringVar(value='English');self.final_result=None;self.draw_events=queue.Queue();self.draw_offer_pending=False
         self.piece_style=tk.StringVar(value='Nibbler');self.last_2d_style='Nibbler';self.last_3d_style='Staunton 3D';self.board_view=tk.StringVar(value='2D')
         self.board_colors=board_settings.load()
         self.light_square=self.board_colors['light'];self.dark_square=self.board_colors['dark']
@@ -136,18 +179,21 @@ class App:
         self.clock_remaining={chess.WHITE:0.0,chess.BLACK:0.0};self.clock_mode=self.TIME_CONTROLS[self.time_control.get()]
         self.clock_running=None;self.clock_started=None;self.clock_after=None
         self.quad=None;self.quad_window=None;self.quad_summary=None;self.quad_round_button=None;self.quad_launch=False
+        self.engine_match_events=queue.Queue();self.engine_match_token=0;self.engine_match_stop=None;self.engine_match_thread=None
+        self.engine_match_window=None;self.engine_match_games=[];self.engine_match_running=False
         self.editor_mode=False;self.editor_piece=None;self.editor_saved_board=None;self.editor_choice=tk.StringVar(value='K')
         self.lichess_events=queue.Queue();self.lichess_games=[];self.database_games=[];self.lichess_username=tk.StringVar();self.database_label=tk.StringVar(value='Sin base PGN cargada / No PGN database loaded')
         self.review_game=None;self.review_ply=0;self.review_label=tk.StringVar(value='—')
         self.engine_view=tk.StringVar(value='Stockfish');self.side_to_move=tk.StringVar(value='White')
         self.show_stockfish=tk.BooleanVar(value=True);self.show_crafty=tk.BooleanVar(value=True);self.show_robochess=tk.BooleanVar(value=True)
-        self.ui_theme=tk.StringVar(value=ui_settings.load_theme())
         self.make_menu()
-        top=ttk.Frame(window,padding=(8,4)); top.pack(fill='x')
-        for label,command in [('⚙ Stockfish',lambda:self.choose('Stockfish')),('⚙ Crafty',lambda:self.choose('Crafty')),('⚙ RoboChess',lambda:self.choose('RoboChess')),('▦ CPU / UCI',self.load_uci_engine),('✎ Edit',self.start_position_editor),('↻ Flip',self.flip_board),('▶ Analyze',self.analyze),('■ Stop',self.stop_action),('Reset',self.reset),('↶ Undo',self.undo),('📂 PGN',self.load_pgn),('💾 PGN analysis',self.save_pgn)]:
-            ttk.Button(top,text=label,command=command).pack(side='left',padx=3)
-        ttk.Label(top,text='Seconds / engine:').pack(side='left',padx=(15,3))
-        self.seconds=tk.StringVar(value='3'); ttk.Spinbox(top,from_=1,to=120,width=5,textvariable=self.seconds).pack(side='left')
+        self.bind_keyboard_shortcuts()
+        top=ttk.Frame(window,padding=(8,4));top.pack(fill='x')
+        self.study_button=ttk.Button(top,text=self.T('Estudio','Study'),command=self.show_study_view);self.study_button.pack(side='left',padx=3)
+        self.resources_button=ttk.Button(top,text=self.T('Recursos','Resources'),command=self.show_tools_view);self.resources_button.pack(side='left',padx=3)
+        self.seconds=tk.StringVar(value='3')
+        self.seconds_label=ttk.Label(top,text=self.T('Segundos por motor:','Seconds / engine:'));self.seconds_label.pack(side='left',padx=(15,3))
+        ttk.Spinbox(top,from_=1,to=120,width=5,textvariable=self.seconds).pack(side='left')
         ttk.Label(top,textvariable=self.clock_label,font=('Arial',11,'bold')).pack(side='right',padx=8)
         self._hidden=ttk.Frame(window)
         self.engine_selector=ttk.Combobox(self._hidden,textvariable=self.play_engine,values=self.ENGINE_NAMES,state='readonly',width=11)
@@ -171,9 +217,6 @@ class App:
         self.canvas=tk.Canvas(board_frame,width=560,height=560,highlightthickness=0);self.canvas.pack(side='left',anchor='n')
         board_frame.bind('<Configure>',self._fit_board)
         side=ttk.Frame(body,padding=(8,2));body.add(side,weight=1)
-        nav=ttk.Frame(side);nav.pack(fill='x',pady=(0,3))
-        ttk.Button(nav,text='Análisis / Study',command=self.show_study_view).pack(side='left')
-        ttk.Button(nav,text='Tutor / Resources',command=self.show_tools_view).pack(side='left',padx=4)
         self.study_view=ttk.Frame(side);self.study_view.pack(fill='both',expand=True)
         ttk.Label(self.study_view,textvariable=self.status,wraplength=560).pack(fill='x',pady=(0,5))
         self.move_frame=ttk.LabelFrame(self.study_view,text='Jugadas · notación algebraica / Moves · algebraic notation',padding=4);self.move_frame.pack(fill='both',expand=True,pady=(0,5))
@@ -291,175 +334,91 @@ class App:
         self.put(self.resource_text,'Lucas Chess R2: tres estilos de piezas, libro de grandes maestros, finales de hasta tres piezas y ejercicios de mate en uno.')
         self.canvas.bind('<Button-1>',self.click)
         self.w.protocol('WM_DELETE_WINDOW',self.close)
-        self.draw();self.set_language();self.apply_ui_theme();self.w.after(100,self.poll)
+        self.draw();self.set_language();self.w.after(100,self.poll)
         if self.profile:self.status.set(self.T(f"Perfil: {self.profile['name']}. Menú Perfil o Entrenamiento para continuar.",f"Profile: {self.profile['name']}. Use Profile or Training menus."))
     def T(self,spanish,english):return choose(self.language.get(),spanish,english)
     def make_menu(self):
-        bar=tk.Menu(self.w,tearoff=0);self.w.configure(menu=bar)
-        self.menu_bar=bar;self.menu_widgets=[bar];self._menu_translations=[]
-        def next_index(widget):
-            last=widget.index('end')
-            return 0 if last is None else last+1
-        def remember(widget,index,spanish,english):
-            self._menu_translations.append((widget,index,spanish,english))
-        def cascade(parent,spanish,english,child):
-            index=next_index(parent);parent.add_cascade(label=self.T(spanish,english),menu=child);remember(parent,index,spanish,english)
-        def new_menu(parent,spanish,english):
-            item=tk.Menu(parent,tearoff=0);self.menu_widgets.append(item);cascade(parent,spanish,english,item);return item
-        def command(parent,spanish,english,**options):
-            index=next_index(parent);parent.add_command(label=self.T(spanish,english),**options);remember(parent,index,spanish,english)
-        def check(parent,spanish,english,**options):
-            index=next_index(parent);parent.add_checkbutton(label=self.T(spanish,english),**options);remember(parent,index,spanish,english)
-        def radio(parent,spanish,english,**options):
-            index=next_index(parent);parent.add_radiobutton(label=self.T(spanish,english),**options);remember(parent,index,spanish,english)
-
-        filemenu=new_menu(bar,'Archivo','File')
-        command(filemenu,'Abrir PGN…','Open PGN…',command=self.load_pgn,accelerator='Ctrl+O')
-        command(filemenu,'Importar base PGN…','Import PGN database…',command=self.open_pgn_database,accelerator='Ctrl+Shift+O')
-        filemenu.add_separator()
-        command(filemenu,'Guardar partida…','Save game…',command=self.save_game,accelerator='Ctrl+S')
-        command(filemenu,'Guardar análisis PGN…','Save analysis as PGN…',command=self.save_pgn,accelerator='Ctrl+Shift+S')
-        command(filemenu,'Guardar análisis TXT…','Save analysis as TXT…',command=self.save_txt,accelerator='Ctrl+Alt+S')
-        filemenu.add_separator()
-        command(filemenu,'Configuración…','Settings…',command=self.settings_dialog,accelerator='Ctrl+,')
-        filemenu.add_separator()
-        command(filemenu,'Salir del programa','Exit program / Quit',command=self.close,accelerator='Ctrl+Q')
-
-        edit=new_menu(bar,'Editar','Edit')
-        command(edit,'Editar posición…','Edit position…',command=self.start_position_editor,accelerator='Ctrl+E')
-        command(edit,'Pegar o fijar FEN…','Paste or set FEN…',command=self.fen_dialog,accelerator='Ctrl+Shift+F')
-        edit.add_separator()
-        command(edit,'Deshacer','Undo',command=self.undo,accelerator='Ctrl+Z')
-        command(edit,'Reiniciar tablero','Reset board',command=self.reset,accelerator='Ctrl+R')
-
-        game=new_menu(bar,'Partida','Game')
-        command(game,'Nueva partida','New game',command=self.start_game,accelerator='Ctrl+N')
-        command(game,'Configurar partida…','Game setup…',command=self.game_setup_dialog,accelerator='Ctrl+Shift+N')
-        command(game,'Personalidades…','Personalities…',command=self.personalities_dialog)
+        old=getattr(self,'menu_bar',None)
+        bar=tk.Menu(self.w);self.menu_bar=bar;self.w.configure(menu=bar)
+        filemenu=tk.Menu(bar,tearoff=0);bar.add_cascade(label=self.T('Archivo','File'),menu=filemenu)
+        filemenu.add_command(label=self.T('Abrir partida PGN…','Open PGN game…'),command=self.load_pgn,accelerator='Ctrl+O')
+        filemenu.add_command(label=self.T('Importar base de partidas PGN…','Import PGN game database…'),command=self.open_pgn_database)
+        filemenu.add_command(label=self.T('Guardar partida…','Save game…'),command=self.save_game)
+        filemenu.add_command(label=self.T('Guardar análisis en PGN…','Save analysis as PGN…'),command=self.save_pgn,accelerator='Ctrl+S')
+        filemenu.add_command(label=self.T('Guardar análisis en TXT…','Save analysis as TXT…'),command=self.save_txt)
+        filemenu.add_separator();filemenu.add_command(label=self.T('Perfil y progreso…','Profile and progress…'),command=self.profile_dialog)
+        filemenu.add_command(label=self.T('Configuración…','Settings…'),command=self.settings_dialog)
+        filemenu.add_separator();filemenu.add_command(label=self.T('Salir','Exit'),command=self.close,accelerator='Ctrl+Q')
+        edit=tk.Menu(bar,tearoff=0);bar.add_cascade(label=self.T('Editar','Edit'),menu=edit)
+        edit.add_command(label=self.T('Editar posición…','Edit position…'),command=self.start_position_editor)
+        edit.add_command(label=self.T('Pegar o fijar FEN…','Paste or set FEN…'),command=self.fen_dialog)
+        edit.add_command(label=self.T('Deshacer jugada','Undo move'),command=self.undo,accelerator='Ctrl+Z')
+        edit.add_command(label=self.T('Reiniciar tablero','Reset board'),command=self.reset,accelerator='Ctrl+R')
+        game=tk.Menu(bar,tearoff=0);bar.add_cascade(label=self.T('Partida','Game'),menu=game)
+        game.add_command(label=self.T('Configurar partida…','Game setup…'),command=self.game_setup_dialog)
+        game.add_command(label=self.T('Personalidades…','Personalities…'),command=self.personalities_dialog)
+        game.add_command(label=self.T('Nueva partida','New game'),command=self.start_game)
+        game.add_command(label=self.T('Terminar partida','End game'),command=self.end_game)
         game.add_separator()
-        command(game,'Retirar jugada','Takeback',command=self.takeback,accelerator='Ctrl+Backspace')
-        command(game,'Ofrecer tablas','Offer draw',command=self.offer_draw)
-        command(game,'Rendirse','Resign',command=self.resign)
-        command(game,'Terminar partida','End game',command=self.end_game)
-
-        view=new_menu(bar,'Vista','View')
-        command(view,'Girar tablero','Flip board',command=self.flip_board,accelerator='Ctrl+F')
-        command(view,'Análisis','Study layout',command=self.show_study_view,accelerator='Ctrl+1')
-        command(view,'Tutor y recursos','Tutor and resources',command=self.show_tools_view,accelerator='Ctrl+2')
+        game.add_command(label=self.T('Retirar jugada','Takeback'),command=self.takeback)
+        game.add_command(label=self.T('Ofrecer tablas','Offer draw'),command=self.offer_draw)
+        game.add_command(label=self.T('Rendirse','Resign'),command=self.resign)
+        view=tk.Menu(bar,tearoff=0);bar.add_cascade(label=self.T('Vista','View'),menu=view)
+        view.add_command(label=self.T('Girar tablero','Flip board'),command=self.flip_board,accelerator='Ctrl+F')
+        view.add_command(label=self.T('Estudio','Study'),command=self.show_study_view)
+        view.add_command(label=self.T('Recursos','Resources'),command=self.show_tools_view)
+        view.add_command(label=self.T('Analizar posición','Analyze position'),command=self.analyze,accelerator='Ctrl+A')
         view.add_separator()
-        check(view,'Flechas de Stockfish','Stockfish arrows',variable=self.show_stockfish,command=self.draw)
-        check(view,'Flechas de Crafty','Crafty arrows',variable=self.show_crafty,command=self.draw)
-        check(view,'Flechas de RoboChess','RoboChess arrows',variable=self.show_robochess,command=self.draw)
-        appearance=new_menu(view,'Apariencia','Appearance')
-        radio(appearance,'Claro','Light',variable=self.ui_theme,value='light',command=lambda:self.set_ui_theme('light'))
-        radio(appearance,'Oscuro','Dark',variable=self.ui_theme,value='dark',command=lambda:self.set_ui_theme('dark'))
-        langmenu=new_menu(view,'Idioma','Language')
-        radio(langmenu,'English','English',variable=self.language,value='English',command=self.set_language)
-        radio(langmenu,'Español','Español',variable=self.language,value='Español',command=self.set_language)
-
-        engines=new_menu(bar,'Motores','Engines')
-        for name in self.ENGINE_NAMES:command(engines,f'Cargar {name}…',f'Load {name}…',command=lambda n=name:self.choose(n))
-        command(engines,'Cargar motor UCI…','Load UCI engine…',command=self.load_uci_engine,accelerator='Ctrl+U')
-        tournament=new_menu(bar,'Torneo','Tournament')
-        command(tournament,'Nuevo torneo de entrenamiento…','New training tournament…',command=self.quad_dialog,accelerator='Ctrl+Shift+T')
-        command(tournament,'Abrir panel del torneo','Open tournament panel',command=self.quad_dialog)
-        command(tournament,'Analizar partidas del torneo…','Review tournament games…',command=self.show_tournament_review)
-        training=new_menu(bar,'Entrenamiento','Training')
-        command(training,'Puzzles y ejercicios de Lucas Chess…','Lucas Chess puzzles and exercises…',command=self.training_dialog)
-        command(training,'Siguiente ejercicio','Next exercise',command=self.new_puzzle,accelerator='Ctrl+P')
-        command(training,'Encontrar la mejor jugada','Find the best move',command=self.best_move_challenge,accelerator='Ctrl+Shift+P')
-        command(training,'Abrir tutor y recursos','Open tutor and resources',command=self.show_tools_view)
-        profilemenu=new_menu(bar,'Perfil','Profile')
-        command(profilemenu,'Ver o editar perfiles…','View or edit profiles…',command=self.profile_dialog)
-        command(profilemenu,'Crear perfil nuevo…','Create new profile…',command=lambda:self.profile_dialog(create=True))
-        settings=new_menu(bar,'Configuración','Settings')
-        command(settings,'Piezas, tablero y perspectiva…','Pieces, board, and orientation…',command=self.settings_dialog)
-        command(settings,'Configurar partida…','Game setup…',command=self.game_setup_dialog)
-        helpmenu=new_menu(bar,'Ayuda','Help')
-        command(helpmenu,'Acerca de RoboChess','About RoboChess',command=lambda:messagebox.showinfo(self.T('Acerca de RoboChess','About RoboChess'),self.T('RoboChess · Entrenamiento y análisis de ajedrez','RoboChess · Chess training and analysis'),parent=self.w))
-        self._bind_menu_shortcuts()
-
-    def _bind_menu_shortcuts(self):
-        shortcuts=(
-            ('<Control-o>',self.load_pgn),('<Control-Shift-o>',self.open_pgn_database),('<Control-comma>',self.settings_dialog),
-            ('<Control-s>',self.save_game),('<Control-Shift-s>',self.save_pgn),
-            ('<Control-Alt-s>',self.save_txt),('<Control-q>',self.close),
-            ('<Control-e>',self.start_position_editor),('<Control-Shift-f>',self.fen_dialog),
-            ('<Control-z>',self.undo),('<Control-r>',self.reset),
-            ('<Control-n>',self.start_game),('<Control-Shift-n>',self.game_setup_dialog),
-            ('<Control-BackSpace>',self.takeback),('<Control-f>',self.flip_board),
-            ('<Control-1>',self.show_study_view),('<Control-2>',self.show_tools_view),
-            ('<Control-u>',self.load_uci_engine),('<Control-p>',self.new_puzzle),
-            ('<Control-Shift-p>',self.best_move_challenge),('<Control-Shift-t>',self.quad_dialog),
+        view.add_checkbutton(label=self.T('Flechas de Stockfish','Stockfish arrows'),variable=self.show_stockfish,command=self.draw)
+        view.add_checkbutton(label=self.T('Flecha de Crafty','Crafty arrow'),variable=self.show_crafty,command=self.draw)
+        view.add_checkbutton(label=self.T('Flecha de RoboChess','RoboChess arrow'),variable=self.show_robochess,command=self.draw)
+        langmenu=tk.Menu(view,tearoff=0)
+        langmenu.add_radiobutton(label='English',variable=self.language,value='English',command=self.set_language)
+        langmenu.add_radiobutton(label='Español',variable=self.language,value='Español',command=self.set_language)
+        view.add_cascade(label=self.T('Idioma','Language'),menu=langmenu)
+        engines=tk.Menu(bar,tearoff=0);bar.add_cascade(label=self.T('Motores','Engines'),menu=engines);self.engines_menu=engines
+        self._rebuild_engine_menu()
+        tournament=tk.Menu(bar,tearoff=0);bar.add_cascade(label=self.T('Torneo','Tournament'),menu=tournament)
+        tournament.add_command(label=self.T('Nuevo torneo de entrenamiento…','New training tournament…'),command=self.quad_dialog)
+        tournament.add_command(label=self.T('Panel del torneo','Tournament panel'),command=self.quad_dialog)
+        tournament.add_command(label=self.T('Revisar partidas del torneo…','Review tournament games…'),command=self.show_tournament_review)
+        training=tk.Menu(bar,tearoff=0);bar.add_cascade(label=self.T('Entrenamiento','Training'),menu=training)
+        training.add_command(label=self.T('Puzzles y ejercicios Lucas Chess…','Lucas Chess puzzles and exercises…'),command=self.training_dialog,accelerator='Ctrl+Shift+T')
+        training.add_command(label=self.T('Siguiente ejercicio Lucas Chess','Next Lucas Chess exercise'),command=self.new_puzzle)
+        training.add_command(label=self.T('Encontrar la mejor jugada','Find the best move'),command=self.best_move_challenge)
+        profilemenu=tk.Menu(bar,tearoff=0);bar.add_cascade(label=self.T('Perfil','Profile'),menu=profilemenu)
+        profilemenu.add_command(label=self.T('Ver o editar perfiles…','View or edit profiles…'),command=self.profile_dialog,accelerator='Ctrl+Shift+P')
+        profilemenu.add_command(label=self.T('Crear perfil nuevo…','Create new profile…'),command=lambda:self.profile_dialog(create=True))
+        settings=tk.Menu(bar,tearoff=0);bar.add_cascade(label=self.T('Configuración','Settings'),menu=settings)
+        settings.add_command(label=self.T('Piezas, tablero y perspectiva…','Pieces, board and view…'),command=self.settings_dialog)
+        settings.add_command(label=self.T('Configurar partida…','Game setup…'),command=self.game_setup_dialog)
+        helpmenu=tk.Menu(bar,tearoff=0);bar.add_cascade(label=self.T('Ayuda','Help'),menu=helpmenu)
+        helpmenu.add_command(label=self.T('Atajos de teclado…','Keyboard Shortcuts…'),command=self.keyboard_shortcuts_dialog)
+        if old:
+            try:old.destroy()
+            except tk.TclError:pass
+    def bind_keyboard_shortcuts(self):
+        bindings=(
+            ('<Control-o>',self.load_pgn),('<Control-s>',self.save_pgn),
+            ('<Control-Shift-p>',self.profile_dialog),('<Control-Shift-t>',self.training_dialog),
+            ('<Control-z>',self.undo),('<Control-r>',self.reset),('<Control-f>',self.flip_board),
+            ('<Control-a>',self.analyze),('<Control-m>',self.engine_match_dialog),('<Control-q>',self.close),
         )
-        for sequence,command in shortcuts:
-            self.w.bind_all(sequence,lambda event,fn=command:(fn(),'break')[1],add='+')
-
-    def set_ui_theme(self,theme):
-        if theme not in self.UI_THEMES:return
-        self.ui_theme.set(theme)
-        try:ui_settings.save_theme(theme)
-        except OSError as err:
-            messagebox.showwarning('RoboChess',f'No se pudo guardar la apariencia: {err}',parent=self.w)
-        self.apply_ui_theme()
-
-    def apply_ui_theme(self):
-        colors=self.UI_THEMES.get(self.ui_theme.get(),self.UI_THEMES['light'])
-        style=ttk.Style(self.w)
-        available=style.theme_names()
-        target='clam' if 'clam' in available else style.theme_use()
-        if style.theme_use()!=target:style.theme_use(target)
-        style.configure('.',background=colors['panel'],foreground=colors['text'],font=('Segoe UI',9))
-        style.configure('TFrame',background=colors['window'])
-        style.configure('TLabel',background=colors['window'],foreground=colors['text'])
-        style.configure('TLabelframe',background=colors['window'],foreground=colors['text'],bordercolor=colors['border'])
-        style.configure('TLabelframe.Label',background=colors['window'],foreground=colors['text'])
-        style.configure('TButton',background=colors['button'],foreground=colors['text'],bordercolor=colors['border'],padding=(8,4))
-        style.map('TButton',background=[('pressed',colors['accent']),('active',colors['button_hover'])],foreground=[('pressed',colors['accent_text'])])
-        style.configure('TCheckbutton',background=colors['window'],foreground=colors['text'])
-        style.map('TCheckbutton',background=[('active',colors['window'])],foreground=[('disabled',colors['muted'])])
-        style.configure('TRadiobutton',background=colors['window'],foreground=colors['text'])
-        style.map('TRadiobutton',background=[('active',colors['window'])])
-        style.configure('TEntry',fieldbackground=colors['input'],foreground=colors['text'],bordercolor=colors['border'])
-        style.configure('TCombobox',fieldbackground=colors['input'],foreground=colors['text'],background=colors['button'],arrowcolor=colors['text'])
-        style.map('TCombobox',fieldbackground=[('readonly',colors['input'])],foreground=[('readonly',colors['text'])])
-        style.configure('TSpinbox',fieldbackground=colors['input'],foreground=colors['text'],background=colors['button'],arrowcolor=colors['text'])
-        style.configure('TNotebook',background=colors['window'],bordercolor=colors['border'])
-        style.configure('TNotebook.Tab',background=colors['button'],foreground=colors['text'],padding=(12,5))
-        style.map('TNotebook.Tab',background=[('selected',colors['accent']),('active',colors['button_hover'])],foreground=[('selected',colors['accent_text'])])
-        style.configure('Treeview',background=colors['input'],fieldbackground=colors['input'],foreground=colors['text'],rowheight=24)
-        style.configure('Treeview.Heading',background=colors['button'],foreground=colors['text'],font=('Segoe UI',9,'bold'))
-        style.map('Treeview',background=[('selected',colors['selection'])],foreground=[('selected',colors['text'])])
-        style.configure('TSeparator',background=colors['border'])
-        style.configure('Horizontal.TProgressbar',background=colors['accent'],troughcolor=colors['button'])
-        self.w.option_add('*Background',colors['panel'])
-        self.w.option_add('*Foreground',colors['text'])
-        self.w.option_add('*Entry.Background',colors['input'])
-        self.w.option_add('*Text.Background',colors['input'])
-        self.w.option_add('*Text.Foreground',colors['text'])
-        self.w.option_add('*Menu.Background',colors['menu'])
-        self.w.option_add('*Menu.Foreground',colors['text'])
-        self.w.configure(bg=colors['window'])
-        def recolor(widget):
-            try:
-                if isinstance(widget,tk.LabelFrame):widget.configure(bg=colors['window'],fg=colors['text'])
-                elif isinstance(widget,tk.Frame):widget.configure(bg=colors['window'])
-                elif isinstance(widget,tk.Label):widget.configure(bg=colors['window'],fg=colors['text'])
-                elif isinstance(widget,tk.Button):
-                    if widget not in (getattr(self,'light_color_button',None),getattr(self,'dark_color_button',None)):
-                        widget.configure(bg=colors['button'],fg=colors['text'],activebackground=colors['button_hover'],activeforeground=colors['text'],relief='flat',bd=0)
-                elif isinstance(widget,tk.Entry):widget.configure(bg=colors['input'],fg=colors['text'],insertbackground=colors['text'],selectbackground=colors['selection'])
-                elif isinstance(widget,tk.Text):widget.configure(bg=colors['input'],fg=colors['text'],insertbackground=colors['text'],selectbackground=colors['selection'])
-                elif isinstance(widget,tk.Listbox):widget.configure(bg=colors['input'],fg=colors['text'],selectbackground=colors['selection'])
-                elif isinstance(widget,tk.Canvas):
-                    bg=colors['gutter'] if widget is getattr(self,'evalbar',None) else colors['window']
-                    widget.configure(bg=bg)
-            except tk.TclError:pass
-            for child in widget.winfo_children():recolor(child)
-        recolor(self.w)
-        for item in getattr(self,'menu_widgets',()):
-            try:item.configure(bg=colors['menu'],fg=colors['text'],activebackground=colors['menu_hover'],activeforeground=colors['text'],disabledforeground=colors['muted'],bd=0,relief='flat')
-            except tk.TclError:pass
+        for sequence,action in bindings:
+            self.w.bind_all(sequence,lambda event,callback=action:(callback(),'break')[1])
+    def keyboard_shortcuts_dialog(self):
+        title=self.T('Atajos de teclado','Keyboard Shortcuts')
+        rows=(
+            ('Abrir partida PGN','Open PGN game','Ctrl+O'),
+            ('Guardar análisis PGN','Save analysis PGN','Ctrl+S'),
+            ('Perfiles','Profiles','Ctrl+Shift+P'),
+            ('Puzzles y ejercicios','Puzzles and exercises','Ctrl+Shift+T'),
+            ('Deshacer jugada','Undo move','Ctrl+Z'),('Reiniciar tablero','Reset board','Ctrl+R'),
+            ('Girar tablero','Flip board','Ctrl+F'),('Analizar posición','Analyze position','Ctrl+A'),
+            ('Engine Match','Engine Match','Ctrl+M'),('Salir','Exit','Ctrl+Q'),
+        )
+        lines=[f'{self.T(es,en):<31} {key}' for es,en,key in rows]
+        messagebox.showinfo(title,'\n'.join(lines),parent=self.w)
     def _fit_board(self,event=None):
         if self._fitting_board or not hasattr(self,'board_frame'):return
         raw_h=self.board_frame.winfo_height();raw_w=self.board_frame.winfo_width()
@@ -516,7 +475,7 @@ class App:
         ttk.Combobox(row,textvariable=self.side_to_move,values=('White','Black'),state='readonly',width=8).pack(side='left',padx=6)
         ttk.Button(row,text='Set FEN',command=lambda:(self.set_fen(),win.destroy())).pack(side='left',padx=8)
         ttk.Button(row,text=self.T('Cancelar','Cancel'),command=win.destroy).pack(side='right')
-    PIECE_3D=('Staunton 3D','Cool Arcade','Olympus Gods')
+    PIECE_3D=('Staunton 3D','Cool Arcade')
     def _piece_style_names(self):
         required={f'{color}{piece}.png' for color in ('','_') for piece in ('K','Q','R','B','N','P')}
         style_root=os.path.join(ROOT,'assets','lucas_styles')
@@ -553,7 +512,7 @@ class App:
         styles=self._piece_style_names()
         self.settings_style_selector=ttk.Combobox(row,textvariable=self.piece_style,values=styles,state='readonly',width=28)
         self.settings_style_selector.pack(side='left');self.settings_style_selector.bind('<<ComboboxSelected>>',self.change_pieces)
-        ttk.Label(frame,text=self.T('En 3D puedes elegir Staunton 3D, Cool Arcade u Olympus Gods. En 2D puedes elegir Nibbler o cualquier otro set.','3D can use Staunton 3D, Cool Arcade, or Olympus Gods. 2D can use Nibbler or any other set.')).pack(anchor='w',pady=(0,8))
+        ttk.Label(frame,text=self.T('En 3D puedes elegir Staunton 3D o Cool Arcade. En 2D puedes elegir Nibbler o cualquier otro set.','3D can use Staunton 3D or Cool Arcade. 2D can use Nibbler or any other set.')).pack(anchor='w',pady=(0,8))
         ttk.Label(frame,text=self.T('Colores del tablero','Board colors')).pack(anchor='w')
         colorrow=ttk.Frame(frame);colorrow.pack(anchor='w',fill='x',pady=4)
         palettes=ttk.Combobox(colorrow,textvariable=self.board_palette,values=(*self.BOARD_PALETTES,'Personalizar / Custom'),state='readonly',width=30)
@@ -613,10 +572,55 @@ class App:
             f'Se detectaron {len(self.training_sets)-1} colecciones locales.\nElige Tactics o Trainings, pulsa Siguiente ejercicio y resuelve en el tablero.\nLos puzzles de Lichess necesitan el CSV descargado de database.lichess.org.',
             f'{len(self.training_sets)-1} local collections were found.\nPick Tactics or Trainings, press Next exercise and solve on the board.\nLichess puzzles need the CSV from database.lichess.org.'))
         hint.configure(state='disabled')
-    def load_uci_engine(self):
-        path=filedialog.askopenfilename(title='Load a UCI chess engine',filetypes=[('Chess engine','*.exe *.bat *.cmd *.py'),('All files','*.*')])
-        if path:
-            self.paths['Stockfish']=path;self.status.set(self.T(f'Motor UCI cargado: {path}',f'UCI engine loaded: {path}'))
+    @staticmethod
+    def _uci_command(path):
+        lower=path.lower()
+        if lower.endswith('.py'):return [sys.executable,path]
+        if platform.system()=='Windows' and lower.endswith(('.bat','.cmd')):return ['cmd.exe','/c',path]
+        return path
+    def add_uci_engine(self):
+        suggested=''
+        path=filedialog.askopenfilename(title=self.T('Selecciona el ejecutable UCI','Select the UCI executable'),
+                                        filetypes=[('Chess engine','*.exe *.bat *.cmd *.py'),('All files','*.*')])
+        if not path:return
+        suggested=os.path.splitext(os.path.basename(path))[0]
+        name=simpledialog.askstring(self.T('Agregar motor UCI','Add UCI Engine'),
+                                    self.T('Nombre que aparecerá en los menús de RoboChess:','Name to show in RoboChess menus:'),
+                                    initialvalue=suggested,parent=self.w)
+        if name is None:return
+        name=' '.join(name.strip().split())
+        if not name:
+            messagebox.showerror(self.T('Nombre requerido','Name required'),self.T('Escribe un nombre para el motor.','Enter a name for the engine.'));return
+        if name.casefold() in {n.casefold() for n in self.BUILTIN_ENGINE_NAMES}:
+            messagebox.showerror(self.T('Nombre reservado','Reserved name'),self.T('Ese nombre ya pertenece a un motor integrado. Elige otro.','That name is already used by a built-in engine. Choose another.'));return
+        existing=next((n for n in self.custom_engines if n.casefold()==name.casefold()),None)
+        if existing and not messagebox.askyesno(self.T('Reemplazar motor','Replace engine'),
+                self.T(f'{existing} ya está registrado. ¿Reemplazar su ejecutable?',f'{existing} is already registered. Replace its executable?')):return
+        previous_record=self.custom_engines.get(existing) if existing else None
+        previous_path=self.paths.get(existing) if existing else None
+        engine=None
+        try:
+            engine=chess.engine.SimpleEngine.popen_uci(self._uci_command(path),timeout=12)
+            reported=engine.id.get('name','UCI engine')
+            engine.quit();engine=None
+        except Exception as err:
+            if engine:
+                try:engine.quit()
+                except Exception:pass
+            messagebox.showerror(self.T('No se pudo iniciar el motor UCI','Could not start UCI engine'),
+                                 self.T(f'RoboChess no recibió una respuesta UCI válida de este archivo:\n{err}',f'RoboChess did not receive a valid UCI response from this file:\n{err}'))
+            return
+        if existing:del self.custom_engines[existing]
+        self.custom_engines[name]={'path':os.path.abspath(path),'reported_name':reported}
+        self.paths[name]=os.path.abspath(path)
+        try:self._save_custom_engines()
+        except OSError as err:
+            self.custom_engines.pop(name,None);self.paths.pop(name,None)
+            if existing and previous_record:
+                self.custom_engines[existing]=previous_record;self.paths[existing]=previous_path
+            messagebox.showerror(self.T('No se pudo guardar el motor','Could not save engine'),str(err));return
+        self._refresh_engine_choices(name)
+        self.status.set(self.T(f'{name} agregado ({reported}) y disponible en los selectores.',f'{name} added ({reported}) and available in engine selectors.'))
     def show_study_view(self):
         self.tabs.pack_forget();self.study_view.pack(fill='both',expand=True)
     def show_tools_view(self):
@@ -759,37 +763,25 @@ class App:
                 'final':'Focus: endgame. Practice king activity, passed pawns, and pawn races. Replay difficult endgames.',
                 None:'Play three more games at your level and review the tutor lines. There is no clear priority yet.'}[focus]
     def set_language(self,event=None):
-        language=self.language.get()
-        ui_settings.save_language(language)
-        self.w.title(self.T('RoboChess · Análisis y estudio de ajedrez','RoboChess · Chess analysis and study'))
         def visit(widget):
             if isinstance(widget,ttk.Notebook):
                 for tab in widget.tabs():
                     original=widget.tab(tab,'text')
                     if not hasattr(self,'_tab_labels'):self._tab_labels={}
                     if tab not in self._tab_labels:self._tab_labels[tab]=original
-                    widget.tab(tab,text=translate_label(self._tab_labels[tab],language))
-            if isinstance(widget,ttk.Treeview):
-                if not hasattr(self,'_tree_headers'):self._tree_headers={}
-                for column in widget.cget('columns'):
-                    key=(widget,column)
-                    if key not in self._tree_headers:
-                        try:self._tree_headers[key]=widget.heading(column,'text')
-                        except tk.TclError:continue
-                    try:widget.heading(column,text=translate_label(self._tree_headers[key],language))
-                    except tk.TclError:pass
+                    widget.tab(tab,text=LABELS.get(self._tab_labels[tab],self._tab_labels[tab]) if self.language.get()=='English' else SPANISH.get(self._tab_labels[tab],self._tab_labels[tab]))
             try:
                 original=widget.cget('text')
                 if not hasattr(self,'_ui_labels'):self._ui_labels={}
                 if widget not in self._ui_labels:self._ui_labels[widget]=original
-                widget.configure(text=translate_label(self._ui_labels[widget],language))
+                widget.configure(text=LABELS.get(self._ui_labels[widget],self._ui_labels[widget]) if self.language.get()=='English' else SPANISH.get(self._ui_labels[widget],self._ui_labels[widget]))
             except (tk.TclError,AttributeError):pass
             for child in widget.winfo_children():visit(child)
         visit(self.w)
-        for widget,index,spanish,english in getattr(self,'_menu_translations',()):
-            try:widget.entryconfigure(index,label=self.T(spanish,english))
-            except tk.TclError:pass
-        self.refresh_clock()
+        if hasattr(self,'study_button'):self.study_button.configure(text=self.T('Estudio','Study'))
+        if hasattr(self,'resources_button'):self.resources_button.configure(text=self.T('Recursos','Resources'))
+        if hasattr(self,'seconds_label'):self.seconds_label.configure(text=self.T('Segundos por motor:','Seconds / engine:'))
+        if hasattr(self,'engines_menu'):self.make_menu()
         if not self.playing and not self.puzzle_active:self.status.set(self.T('Selecciona los motores y pulsa Analizar.','Select engines and press Analyze.'))
         if not self.playing:self.put(self.coach_text,self.T('Activa el tutor para recibir consejos. Pulsa Pista o Explicar.','Enable the tutor for advice. Press Hint or Explain.'))
     def portrait(self,filename,max_size):
@@ -1148,7 +1140,7 @@ class App:
             value=self.results.get(name,[])
             return value[0] if isinstance(value,list) and value else value
         available={name:first(name) for name in self.ENGINE_NAMES if first(name)}
-        source=available.get('Stockfish') or available.get('RoboChess') or available.get('Crafty')
+        source=available.get('Stockfish') or available.get('RoboChess') or available.get('Crafty') or next(iter(available.values()),None)
         fraction,label=self.score_fraction(source)
         fraction=.5 if fraction is None else fraction
         split=round(height*(1-fraction))
@@ -1161,14 +1153,20 @@ class App:
             c.create_rectangle(0,split,width,height,fill='#f6f5e9',outline='')
         c.create_rectangle(0,0,width-1,height-1,outline='#777777')
         if label:c.create_text(width//2,max(15,min(height-15,split+17 if split<height//2 else split-17)),text=label,fill=('#eeeeee' if (split<height//2)==self.flipped else '#222222'),font=('Arial',9,'bold'))
-        primary_name=next((name for name in ('Stockfish','RoboChess','Crafty') if name in available),None)
+        primary_name=next((name for name in ('Stockfish','RoboChess','Crafty') if name in available),next(iter(available),None))
         for name,info in available.items():
             if name==primary_name:continue
             other,_=self.score_fraction(info)
             if other is not None:
-                y=round(height*(other if self.flipped else 1-other));c.create_line(1,y,width-1,y,fill=self.ENGINE_COLORS[name],width=4)
+                y=round(height*(other if self.flipped else 1-other));c.create_line(1,y,width-1,y,fill=self.engine_color(name),width=4)
         c.create_text(width//2,10,text=('W' if self.flipped else 'B'),fill=('#222222' if self.flipped else '#ffffff'),font=('Arial',9,'bold'))
         c.create_text(width//2,height-10,text=('B' if self.flipped else 'W'),fill=('#ffffff' if self.flipped else '#222222'),font=('Arial',9,'bold'))
+    @staticmethod
+    def engine_color(name):
+        known=App.ENGINE_COLORS.get(name)
+        if known:return known
+        palette=('#1d7ea8','#bb5870','#7a8c2e','#9365b4','#d18b2c','#3c9b83')
+        return palette[sum((i+1)*ord(ch) for i,ch in enumerate(name))%len(palette)]
     def draw_arrows(self):
         c=self.canvas;s=self.square
         groups=[]
@@ -1184,6 +1182,10 @@ class App:
         if self.show_robochess.get():
             info=self.results.get('RoboChess');info=info[0] if isinstance(info,list) and info else info
             if info and info.get('pv'):groups.append((info['pv'][0],'R','#9b59b6',4))
+        for offset,name in enumerate(self.ENGINE_NAMES[3:],5):
+            info=self.results.get(name);info=info[0] if isinstance(info,list) and info else info
+            if info and info.get('pv'):
+                groups.append((info['pv'][0],name[:2].upper(),self.engine_color(name),offset))
         for move,label,color,index in groups:
             x1,y1=self.center(move.from_square)
             x2,y2=self.center(move.to_square)
@@ -1328,8 +1330,15 @@ class App:
             self.play_sound('illegal.wav')
             self.status.set('Illegal move');self.draw()
     def choose(self,name):
-        path=filedialog.askopenfilename(title=f'Choose {name} executable')
-        if path:self.paths[name]=path;self.status.set(f'{name}: {path}')
+        path=filedialog.askopenfilename(title=self.T(f'Elige el ejecutable de {name}',f'Choose {name} executable'),
+                                        filetypes=[('Chess engine','*.exe *.bat *.cmd *.py'),('All files','*.*')])
+        if not path:return
+        self.paths[name]=os.path.abspath(path)
+        if name in self.custom_engines:
+            self.custom_engines[name]['path']=self.paths[name]
+            try:self._save_custom_engines()
+            except OSError as err:messagebox.showerror(self.T('No se pudo guardar el motor','Could not save engine'),str(err));return
+        self.status.set(f'{name}: {path}')
     def stop(self):
         self.epoch+=1;self.coach_generation+=1;self.feedback_pending=False;self.draw_offer_pending=False
         for engine in list(self.engines.values()):
@@ -1382,8 +1391,9 @@ class App:
     def open_engine(self,name,path):
         work=None
         try:
-            if name in ('Stockfish','RoboChess'):
-                engine=chess.engine.SimpleEngine.popen_uci(path,timeout=15)
+            if name in ('Stockfish','RoboChess') or name in self.custom_engines:
+                command=self._uci_command(path) if name in self.custom_engines else path
+                engine=chess.engine.SimpleEngine.popen_uci(command,timeout=15)
             else:
                 lower=os.path.basename(path).lower()
                 if lower.endswith('.py'):
@@ -1403,7 +1413,7 @@ class App:
             engine,crafty_work=self.open_engine(name,path)
             if token!=self.epoch:return
             self.engines[name]=engine
-            supports_multipv=(name=='Stockfish' or (name=='RoboChess' and 'MultiPV' in engine.options))
+            supports_multipv='MultiPV' in engine.options
             result=(engine.analyse(board,chess.engine.Limit(time=seconds),multipv=3) if supports_multipv else engine.analyse(board,chess.engine.Limit(time=seconds)))
             self.events.put((token,name,board,result,None))
         except Exception as err:self.events.put((token,name,board,None,str(err)))
@@ -1719,6 +1729,264 @@ class App:
             self.status.set(self.T('PGN del torneo guardado: ','Tournament PGN saved: ')+path)
         ttk.Button(bar,text=self.T('Guardar todas las partidas PGN','Save all games as PGN'),command=save_all).pack(side='left',padx=6)
         ttk.Label(frame,text=self.T('Doble clic en una fila para cargarla en el tablero y pulsar Analizar.','Double-click a row to load it on the board, then press Analyze.')).pack(anchor='w')
+    def engine_match_dialog(self):
+        if self.engine_match_window is not None:
+            try:
+                if self.engine_match_window.winfo_exists():self.engine_match_window.lift();return
+            except tk.TclError:pass
+        win=tk.Toplevel(self.w);self.engine_match_window=win
+        win.title(self.T('Engine Match · partida entre motores','Engine Match · engine vs engine'))
+        win.geometry('820x650');win.minsize(720,560);win.transient(self.w)
+        frame=ttk.Frame(win,padding=12);frame.pack(fill='both',expand=True)
+        ttk.Label(frame,text=self.T('Prueba de fuerza entre dos motores','Playing-strength test between two engines'),font=('Arial',13,'bold')).pack(anchor='w')
+        ttk.Label(frame,text=self.T(
+            'Juegan partidas automáticamente, alternan colores y cada pareja empieza desde la misma posición de apertura. El Elo es una estimación relativa; usa un motor de referencia con Elo conocido para estimar un valor absoluto.',
+            'Engines play automatically, swap colors, and each pair starts from the same opening position. Elo is a relative estimate; use a reference engine with a known Elo to estimate an absolute value.'),wraplength=780,justify='left').pack(anchor='w',pady=(3,8))
+        form=ttk.Frame(frame);form.pack(fill='x')
+        self.engine_match_a=tk.StringVar(value='Stockfish');self.engine_match_b=tk.StringVar(value='Crafty')
+        self.engine_match_count=tk.StringVar(value='20');self.engine_match_time=tk.StringVar(value='Blitz 3+2')
+        self.engine_match_move_seconds=tk.StringVar(value='5');self.engine_match_hash=tk.StringVar(value='128')
+        self.engine_match_threads=tk.StringVar(value='1');self.engine_match_reference=tk.StringVar(value='')
+        self.engine_match_use_book=tk.BooleanVar(value=bool(self.book_path and os.path.isfile(self.book_path)))
+        rows=(
+            (self.T('Motor A','Engine A'),ttk.Combobox(form,textvariable=self.engine_match_a,values=self.ENGINE_NAMES,state='readonly',width=18)),
+            (self.T('Motor B','Engine B'),ttk.Combobox(form,textvariable=self.engine_match_b,values=self.ENGINE_NAMES,state='readonly',width=18)),
+            (self.T('Partidas (número par)','Games (even number)'),ttk.Spinbox(form,from_=2,to=1000,increment=2,textvariable=self.engine_match_count,width=9)),
+            (self.T('Control de tiempo','Time control'),ttk.Combobox(form,textvariable=self.engine_match_time,values=tuple(self.TIME_CONTROLS),state='readonly',width=50)),
+            (self.T('Segundos por jugada (sin reloj)','Seconds per move (no clock)'),ttk.Spinbox(form,from_=1,to=60,textvariable=self.engine_match_move_seconds,width=9)),
+            (self.T('Hash por motor (MB)','Hash per engine (MB)'),ttk.Spinbox(form,from_=1,to=4096,textvariable=self.engine_match_hash,width=9)),
+            (self.T('Hilos por motor','Threads per engine'),ttk.Spinbox(form,from_=1,to=max(1,os.cpu_count() or 1),textvariable=self.engine_match_threads,width=9)),
+            (self.T('Elo conocido del motor B (opcional)','Known Elo for engine B (optional)'),ttk.Entry(form,textvariable=self.engine_match_reference,width=12)),
+        )
+        for i,(label,widget) in enumerate(rows):
+            ttk.Label(form,text=label).grid(row=i,column=0,sticky='w',pady=2,padx=(0,10));widget.grid(row=i,column=1,sticky='w',pady=2)
+        ttk.Checkbutton(form,text=self.T('Usar el libro de aperturas seleccionado; mismas posiciones en cada pareja','Use the selected opening book; paired games use the same positions'),variable=self.engine_match_use_book).grid(row=len(rows),column=1,sticky='w',pady=4)
+        load_row=ttk.Frame(frame);load_row.pack(fill='x',pady=(3,6))
+        ttk.Button(load_row,text=self.T('Elegir ejecutable de A…','Choose A executable…'),command=lambda:self.choose(self.engine_match_a.get())).pack(side='left')
+        ttk.Button(load_row,text=self.T('Elegir ejecutable de B…','Choose B executable…'),command=lambda:self.choose(self.engine_match_b.get())).pack(side='left',padx=6)
+        path_text='\n'.join(f'{name}: {self.paths.get(name) or self.T("sin seleccionar","not selected")}' for name in self.ENGINE_NAMES)
+        ttk.Label(frame,text=path_text,justify='left',wraplength=780,foreground='#555').pack(anchor='w',pady=(0,5))
+        self.engine_match_summary=tk.StringVar(value=self.engine_match_summary_text())
+        ttk.Label(frame,textvariable=self.engine_match_summary,wraplength=780,justify='left',font=('Arial',10,'bold')).pack(anchor='w',pady=4)
+        self.engine_match_log=tk.Text(frame,height=11,wrap='word',state='disabled',font=('Consolas',9));self.engine_match_log.pack(fill='both',expand=True,pady=4)
+        actions=ttk.Frame(frame);actions.pack(fill='x',pady=(4,0))
+        self.engine_match_start_button=ttk.Button(actions,text=self.T('Iniciar prueba','Start match'),command=self.start_engine_match);self.engine_match_start_button.pack(side='left')
+        self.engine_match_stop_button=ttk.Button(actions,text=self.T('Detener','Stop'),command=self.stop_engine_match,state='disabled');self.engine_match_stop_button.pack(side='left',padx=5)
+        ttk.Button(actions,text=self.T('Guardar partidas PGN…','Save games as PGN…'),command=self.save_engine_match_pgn).pack(side='left',padx=5)
+        ttk.Button(actions,text=self.T('Guardar resultados CSV…','Save results as CSV…'),command=self.save_engine_match_csv).pack(side='left',padx=5)
+        win.protocol('WM_DELETE_WINDOW',self.close_engine_match_dialog)
+        if self.engine_match_games:self._engine_match_log(self.T('Resultados anteriores de esta sesión cargados.','Previous results from this session are loaded.'))
+    def close_engine_match_dialog(self):
+        if self.engine_match_window is not None:
+            try:self.engine_match_window.destroy()
+            except tk.TclError:pass
+        self.engine_match_window=None;self.engine_match_log=None;self.engine_match_start_button=None;self.engine_match_stop_button=None
+    def _engine_match_log(self,text):
+        box=getattr(self,'engine_match_log',None)
+        if box is None:return
+        try:
+            box.configure(state='normal');box.insert('end',str(text)+'\n');box.see('end');box.configure(state='disabled')
+        except tk.TclError:pass
+    def engine_match_summary_text(self):
+        rows=getattr(self,'engine_match_games',[]);config=getattr(self,'engine_match_config',{})
+        if not rows:return self.T('Configura los motores y pulsa Iniciar.','Choose engines and press Start.')
+        a=config.get('a','Motor A');b=config.get('b','Motor B');n=len(rows)
+        wins=sum(r['result']=='1-0' if r['white_engine']==a else r['result']=='0-1' for r in rows)
+        losses=sum(r['result']=='0-1' if r['white_engine']==a else r['result']=='1-0' for r in rows)
+        draws=n-wins-losses;score=sum(r['score_a'] for r in rows);pct=100*score/n
+        p=(score+.5)/(n+1);delta=400*math.log10(p/(1-p))
+        se=400/math.log(10)*math.sqrt(1/((n+1)*p*(1-p)));lo=delta-1.96*se;hi=delta+1.96*se
+        text=self.T(f'{a}: {wins} victorias · {draws} tablas · {losses} derrotas · {score:.1f}/{n} puntos ({pct:.1f}%). Diferencia Elo estimada: {delta:+.0f} (intervalo aproximado 95%: {lo:+.0f} a {hi:+.0f}).',
+                    f'{a}: {wins} wins · {draws} draws · {losses} losses · {score:.1f}/{n} points ({pct:.1f}%). Estimated Elo difference: {delta:+.0f} (approx. 95% interval: {lo:+.0f} to {hi:+.0f}).')
+        reference=config.get('reference')
+        if reference is not None:
+            estimate=reference+delta
+            text+='\n'+self.T(f'Elo estimado de {a}: {estimate:.0f}, usando {b} como referencia de {reference}. No es rating oficial.',f'Estimated Elo for {a}: {estimate:.0f}, using {b} as a {reference} reference. This is not an official rating.')
+        else:text+='\n'+self.T('Para estimar un Elo absoluto, indica el Elo conocido del motor B.','To estimate an absolute Elo, enter a known rating for engine B.')
+        return text
+    @staticmethod
+    def _engine_match_score(result,white_engine,a):
+        if result=='1/2-1/2':return .5
+        if result=='*':return 0.0
+        white_won=result=='1-0'
+        return 1.0 if white_won==(white_engine==a) else 0.0
+    @staticmethod
+    def _engine_match_opening(reader,rng):
+        board=chess.Board();plies=rng.randint(8,14)
+        if reader:
+            for _ in range(plies):
+                try:move=reader.weighted_choice(board).move
+                except (IndexError,ValueError):break
+                if move not in board.legal_moves:break
+                board.push(move)
+        board.clear_stack()
+        return board
+    @staticmethod
+    def _engine_match_configure(engine,hash_mb,threads):
+        options=getattr(engine,'options',{}) or {};found={str(key).casefold():key for key in options}
+        settings={}
+        for key,value in (('Hash',hash_mb),('Threads',threads),('OwnBook',False),('UCI_LimitStrength',False)):
+            if key.casefold() in found:settings[found[key.casefold()]]=value
+        if settings:engine.configure(settings)
+        return set(str(k).casefold() for k in settings)
+    def start_engine_match(self):
+        if self.engine_match_running:return
+        if self.playing:
+            messagebox.showinfo('Engine Match',self.T('Termina la partida contra el motor antes de iniciar la prueba.','Finish the game against the engine before starting a match.'));return
+        a=self.engine_match_a.get();b=self.engine_match_b.get();path_a=self.paths.get(a);path_b=self.paths.get(b)
+        if not path_a or not os.path.isfile(path_a) or not path_b or not os.path.isfile(path_b):
+            messagebox.showerror('Engine Match',self.T('Selecciona ejecutables válidos para ambos motores en este panel o en Motores.','Choose valid executables for both engines here or from the Engines menu.'));return
+        if os.path.normcase(os.path.abspath(path_a))==os.path.normcase(os.path.abspath(path_b)):
+            messagebox.showerror('Engine Match',self.T('Los dos motores apuntan al mismo archivo. Selecciona dos ejecutables distintos.','Both engines point to the same file. Select two different executables.'));return
+        try:
+            count=int(self.engine_match_count.get());move_seconds=max(1,min(60,int(self.engine_match_move_seconds.get())))
+            hash_mb=max(1,min(4096,int(self.engine_match_hash.get())));threads=max(1,min(os.cpu_count() or 1,int(self.engine_match_threads.get())))
+            reference=int(self.engine_match_reference.get()) if self.engine_match_reference.get().strip() else None
+            if count<2 or count>1000 or count%2:raise ValueError('Game count must be an even number from 2 to 1000.')
+            if reference is not None and not 1<=reference<=5000:raise ValueError('Reference Elo must be from 1 to 5000.')
+        except ValueError as err:messagebox.showerror('Engine Match',str(err));return
+        if self.engine_match_time.get() not in self.TIME_CONTROLS:messagebox.showerror('Engine Match','Select a valid time control.');return
+        if self.engine_match_use_book.get() and (not self.book_path or not os.path.isfile(self.book_path)):
+            messagebox.showerror('Engine Match',self.T('El libro de aperturas seleccionado no se encuentra. Selecciona otro libro o desactiva la casilla.','The selected opening book was not found. Choose another book or turn off the checkbox.'));return
+        if self.engine_match_stop:self.engine_match_stop.set()
+        self.stop();self.engine_match_token+=1;token=self.engine_match_token
+        cancel=threading.Event();self.engine_match_stop=cancel;self.engine_match_running=True;self.engine_match_games=[]
+        self.engine_match_config={'a':a,'b':b,'reference':reference,'count':count,'time_control':self.engine_match_time.get()}
+        self.engine_match_summary.set(self.T('Preparando la serie…','Preparing the match…'))
+        try:
+            self.engine_match_log.configure(state='normal');self.engine_match_log.delete('1.0','end');self.engine_match_log.configure(state='disabled')
+        except (tk.TclError,AttributeError):pass
+        self._engine_match_log(self.T(f'Prueba iniciada: {a} vs {b}, {count} partidas; colores alternados.','Match started: {a} vs {b}, {count} games; colors alternate.').format(a=a,b=b,count=count))
+        self.engine_match_start_button.configure(state='disabled');self.engine_match_stop_button.configure(state='normal')
+        args=(token,cancel,a,b,path_a,path_b,count,self.engine_match_time.get(),move_seconds,hash_mb,threads,self.book_path if self.engine_match_use_book.get() else None)
+        self.engine_match_thread=threading.Thread(target=self.engine_match_worker,args=args,daemon=True);self.engine_match_thread.start()
+    def stop_engine_match(self):
+        if self.engine_match_stop:self.engine_match_stop.set()
+        self._engine_match_log(self.T('Detención solicitada; se finalizará la jugada actual.','Stop requested; the current engine move will finish first.'))
+    def engine_match_worker(self,token,cancel,a,b,path_a,path_b,count,time_name,move_seconds,hash_mb,threads,book_path):
+        reader=None;completed=0;rng=random.Random()
+        try:
+            if book_path:
+                try:reader=chess.polyglot.open_reader(book_path)
+                except Exception as err:self.engine_match_events.put((token,'status',f'Opening book unavailable; using the initial position: {err}'))
+            mode=self.TIME_CONTROLS[time_name]
+            pair_board=None;last_pair=-1
+            for number in range(count):
+                if cancel.is_set():break
+                pair=number//2
+                if pair!=last_pair:
+                    pair_board=self._engine_match_opening(reader,rng) if book_path else chess.Board()
+                    last_pair=pair
+                board=pair_board.copy(stack=True)
+                a_color=chess.WHITE if number%2==0 else chess.BLACK
+                white_engine=a if a_color else b;black_engine=b if a_color else a
+                engines={};works={};termination='normal'
+                try:
+                    engines[a],works[a]=self.open_engine(a,path_a)
+                    engines[b],works[b]=self.open_engine(b,path_b)
+                    opts_a=self._engine_match_configure(engines[a],hash_mb,threads)
+                    opts_b=self._engine_match_configure(engines[b],hash_mb,threads)
+                    if number==0 and ('hash' not in opts_a or 'hash' not in opts_b):
+                        self.engine_match_events.put((token,'status','One or both engines do not expose a Hash option; requested memory could not be applied to both.'))
+                    clocks={chess.WHITE:float(mode['base'] or 0),chess.BLACK:float(mode['base'] or 0)}
+                    max_plies=400
+                    for ply in range(max_plies):
+                        if cancel.is_set():break
+                        if board.is_game_over(claim_draw=True):break
+                        color=board.turn;engine=engines[a] if color==a_color else engines[b]
+                        if mode['base'] is None:limit=chess.engine.Limit(time=move_seconds)
+                        else:
+                            delay=float(mode.get('delay',0));inc=float(mode.get('increment',0));cap=mode.get('increment_until')
+                            if cap is not None and board.fullmove_number>cap:inc=0
+                            limit=chess.engine.Limit(
+                                white_clock=clocks[chess.WHITE]+(delay if color==chess.WHITE else 0),
+                                black_clock=clocks[chess.BLACK]+(delay if color==chess.BLACK else 0),
+                                white_inc=inc,black_inc=inc)
+                        started=time.monotonic();played=engine.play(board,limit)
+                        if mode['base'] is not None:
+                            elapsed=max(0.0,time.monotonic()-started-float(mode.get('delay',0)))
+                            clocks[color]=max(0.0,clocks[color]-elapsed)
+                            if clocks[color]<=0:
+                                termination='time forfeit';break
+                            cap=mode.get('increment_until')
+                            if cap is None or board.fullmove_number<=cap:clocks[color]+=float(mode.get('increment',0))
+                        move=played.move
+                        if move is None or move not in board.legal_moves:
+                            termination='engine forfeit';break
+                        board.push(move)
+                        if ply%8==7:self.engine_match_events.put((token,'status',f'Partida / Game {number+1}/{count}: jugada / move {board.fullmove_number}.'))
+                    if cancel.is_set():break
+                    if termination in ('time forfeit','engine forfeit'):
+                        winner=not board.turn;result='1-0' if winner==chess.WHITE else '0-1'
+                    elif board.is_game_over(claim_draw=True):result=board.result(claim_draw=True)
+                    else:result='1/2-1/2';termination='move limit'
+                    game=chess.pgn.Game.from_board(board)
+                    game.headers['Event']='RoboChess Engine Match';game.headers['Round']=str(number+1)
+                    game.headers['White']=white_engine;game.headers['Black']=black_engine;game.headers['Result']=result
+                    game.headers['TimeMode']=time_name;game.headers['TimeControl']=f"{mode['base'] or move_seconds}+{mode.get('increment',0)}"
+                    game.headers['Termination']=termination
+                    game.headers['WhiteEngine']=str(engines[white_engine].id.get('name',white_engine))
+                    game.headers['BlackEngine']=str(engines[black_engine].id.get('name',black_engine))
+                    if book_path:game.headers['OpeningBook']=os.path.basename(os.fspath(book_path))
+                    pgn=io.StringIO();print(game,file=pgn,end='\n\n')
+                    row={'round':number+1,'white_engine':white_engine,'black_engine':black_engine,'result':result,
+                         'score_a':self._engine_match_score(result,white_engine,a),'plies':len(board.move_stack),'termination':termination,'pgn':pgn.getvalue()}
+                    completed+=1;self.engine_match_events.put((token,'game',row))
+                finally:
+                    for name,engine in engines.items():
+                        try:engine.quit()
+                        except Exception:pass
+                    for work in works.values():
+                        if work:
+                            try:work.cleanup()
+                            except OSError:pass
+            self.engine_match_events.put((token,'done',{'completed':completed,'cancelled':cancel.is_set()}))
+        except Exception as err:self.engine_match_events.put((token,'error',str(err)))
+        finally:
+            if reader:
+                try:reader.close()
+                except Exception:pass
+    def poll_engine_match(self):
+        try:
+            while True:
+                token,kind,payload=self.engine_match_events.get_nowait()
+                if token!=self.engine_match_token:continue
+                if kind=='status':self._engine_match_log(payload)
+                elif kind=='game':
+                    self.engine_match_games.append(payload)
+                    self._engine_match_log(self.T(f"Partida {payload['round']}: {payload['white_engine']}–{payload['black_engine']} · {payload['result']} · {payload['plies']} medias jugadas.",f"Game {payload['round']}: {payload['white_engine']}–{payload['black_engine']} · {payload['result']} · {payload['plies']} plies."))
+                    self.engine_match_summary.set(self.engine_match_summary_text())
+                elif kind=='error':
+                    self.engine_match_running=False;self._engine_match_log(self.T('Error del motor: ','Engine error: ')+payload)
+                    self.engine_match_summary.set(self.engine_match_summary_text())
+                    if self.engine_match_start_button:self.engine_match_start_button.configure(state='normal')
+                    if self.engine_match_stop_button:self.engine_match_stop_button.configure(state='disabled')
+                elif kind=='done':
+                    self.engine_match_running=False
+                    text=self.T(f"Prueba detenida: {payload['completed']} partidas completas.",f"Match stopped: {payload['completed']} completed games.") if payload['cancelled'] else self.T(f"Prueba terminada: {payload['completed']} partidas.",f"Match complete: {payload['completed']} games.")
+                    self._engine_match_log(text);self.engine_match_summary.set(self.engine_match_summary_text())
+                    if self.engine_match_start_button:self.engine_match_start_button.configure(state='normal')
+                    if self.engine_match_stop_button:self.engine_match_stop_button.configure(state='disabled')
+        except queue.Empty:pass
+    def save_engine_match_pgn(self):
+        if not self.engine_match_games:messagebox.showinfo('Engine Match',self.T('Todavía no hay partidas para guardar.','There are no games to save yet.'));return
+        path=filedialog.asksaveasfilename(defaultextension='.pgn',filetypes=[('PGN','*.pgn')])
+        if not path:return
+        try:
+            with open(path,'w',encoding='utf-8') as out:out.write('\n'.join(row['pgn'] for row in self.engine_match_games))
+            self.status.set(self.T('Partidas guardadas: ','Games saved: ')+path)
+        except OSError as err:messagebox.showerror('Engine Match',str(err))
+    def save_engine_match_csv(self):
+        if not self.engine_match_games:messagebox.showinfo('Engine Match',self.T('Todavía no hay resultados para guardar.','There are no results to save yet.'));return
+        path=filedialog.asksaveasfilename(defaultextension='.csv',filetypes=[('CSV','*.csv')])
+        if not path:return
+        try:
+            with open(path,'w',newline='',encoding='utf-8-sig') as out:
+                writer=csv.writer(out);writer.writerow(('Round','White engine','Black engine','Result','Score for engine A','Plies','Termination'))
+                for row in self.engine_match_games:writer.writerow(tuple(row[key] for key in ('round','white_engine','black_engine','result','score_a','plies','termination')))
+                writer.writerow(());writer.writerow(('Summary',self.engine_match_summary_text()))
+            self.status.set(self.T('Resultados guardados: ','Results saved: ')+path)
+        except OSError as err:messagebox.showerror('Engine Match',str(err))
     def personalities_dialog(self):
         players=personalities.PLAYERS
         dialog=tk.Toplevel(self.w)
@@ -1912,8 +2180,8 @@ class App:
             if work:
                 try:work.cleanup()
                 except OSError:pass
-    @staticmethod
-    def effective_level(name,level):
+    def effective_level(self,name,level):
+        if name in self.custom_engines:return level,0.0
         if name=='RoboChess':
             # This legacy engine has no Elo UCI option. Map the UI slider to a
             # documented search-depth cap; it is not calibrated Elo.
@@ -1957,6 +2225,14 @@ class App:
                     engine.configure({'Hash':128})
                     limit=limit or chess.engine.Limit(time=seconds)
                     limit.depth=effective
+                elif name in self.custom_engines:
+                    options=engine.options;config={}
+                    if 'UCI_LimitStrength' in options:config['UCI_LimitStrength']=True
+                    if 'UCI_Elo' in options:
+                        option=options['UCI_Elo'];config['UCI_Elo']=max(option.min or 1,min(option.max or 3800,level))
+                    elif 'Skill Level' in options:
+                        option=options['Skill Level'];config['Skill Level']=max(option.min or 0,min(option.max or 20,round(level/3800*20)))
+                    if config:engine.configure(config)
                 elif isinstance(engine.protocol,chess.engine.XBoardProtocol):
                     engine.protocol.loop.call_soon_threadsafe(engine.protocol.send_line,f'elo {3601 if level>=3600 else effective}')
                     engine.ping()
@@ -2225,7 +2501,7 @@ class App:
                     self.mood.set(f'{opponent}: {face} {mood}. {joke}')
         except queue.Empty:pass
     def poll(self):
-        self.poll_play();self.poll_coach();self.poll_lichess();self.poll_lichess_puzzles()
+        self.poll_play();self.poll_coach();self.poll_lichess();self.poll_lichess_puzzles();self.poll_engine_match()
         try:
             while True:
                 token,best,error=self.challenge_events.get_nowait()
@@ -2351,7 +2627,9 @@ class App:
                 first.comment=f'{name} line {index}; depth {info.get("depth","?")}; perspective: player to move.'+ev
         with open(path,'w',encoding='utf-8') as f:print(game,file=f,end='\n\n')
         self.status.set('Saved '+path)
-    def close(self):self.stop();self.w.destroy()
+    def close(self):
+        if self.engine_match_stop:self.engine_match_stop.set()
+        self.stop();self.w.destroy()
 
 def show_splash(root):
     """Show the bundled RoboChess splash without requiring Pillow."""
