@@ -123,6 +123,8 @@ class App:
             if widget is not None:widget.configure(values=names)
         if select_name:
             self.play_engine.set(select_name);self.engine_view.set(select_name)
+            if select_name not in self.BUILTIN_ENGINE_NAMES and hasattr(self,'show_engine_arrows'):
+                self.show_engine_arrows.setdefault(select_name,tk.BooleanVar(value=True))
         if hasattr(self,'panels') and select_name and select_name not in self.panels:
             self.panels[select_name]=tk.Text(self.engine_panel_holder,height=8,width=55,wrap='word',state='disabled')
         if hasattr(self,'engines_menu'):
@@ -188,6 +190,8 @@ class App:
         self.review_game=None;self.review_ply=0;self.review_label=tk.StringVar(value='—')
         self.engine_view=tk.StringVar(value='Stockfish');self.side_to_move=tk.StringVar(value='White')
         self.show_stockfish=tk.BooleanVar(value=True);self.show_crafty=tk.BooleanVar(value=True);self.show_robochess=tk.BooleanVar(value=True)
+        # Custom UCI engines (including Sargon) get their own arrow toggle.
+        self.show_engine_arrows={name:tk.BooleanVar(value=True) for name in self.ENGINE_NAMES[3:]}
         self.make_menu()
         self.bind_keyboard_shortcuts()
         top=ttk.Frame(window,padding=(8,4));top.pack(fill='x')
@@ -374,6 +378,9 @@ class App:
         view.add_checkbutton(label=self.T('Flechas de Stockfish','Stockfish arrows'),variable=self.show_stockfish,command=self.draw)
         view.add_checkbutton(label=self.T('Flecha de Crafty','Crafty arrow'),variable=self.show_crafty,command=self.draw)
         view.add_checkbutton(label=self.T('Flecha de RoboChess','RoboChess arrow'),variable=self.show_robochess,command=self.draw)
+        for name in self.ENGINE_NAMES[3:]:
+            arrow_var=self.show_engine_arrows.setdefault(name,tk.BooleanVar(value=True))
+            view.add_checkbutton(label=self.T(f'Flecha de {name}',f'{name} arrow'),variable=arrow_var,command=self.draw)
         langmenu=tk.Menu(view,tearoff=0)
         langmenu.add_radiobutton(label='English',variable=self.language,value='English',command=self.set_language)
         langmenu.add_radiobutton(label='Español',variable=self.language,value='Español',command=self.set_language)
@@ -1188,6 +1195,8 @@ class App:
             info=self.results.get('RoboChess');info=info[0] if isinstance(info,list) and info else info
             if info and info.get('pv'):groups.append((info['pv'][0],'R','#9b59b6',4))
         for offset,name in enumerate(self.ENGINE_NAMES[3:],5):
+            arrow_var=self.show_engine_arrows.get(name)
+            if arrow_var is not None and not arrow_var.get():continue
             info=self.results.get(name);info=info[0] if isinstance(info,list) and info else info
             if info and info.get('pv'):
                 groups.append((info['pv'][0],name[:2].upper(),self.engine_color(name),offset))
@@ -1418,6 +1427,11 @@ class App:
             engine,crafty_work=self.open_engine(name,path)
             if token!=self.epoch:return
             self.engines[name]=engine
+            # An opening book returns a move immediately, without a searched
+            # principal variation. For analysis, disable an engine's own book
+            # so Sargon reports depth, line, evaluation, and an arrowable move.
+            if 'OwnBook' in engine.options:
+                engine.configure({'OwnBook':False})
             supports_multipv='MultiPV' in engine.options
             result=(engine.analyse(board,chess.engine.Limit(time=seconds),multipv=3) if supports_multipv else engine.analyse(board,chess.engine.Limit(time=seconds)))
             self.events.put((token,name,board,result,None))
@@ -2622,13 +2636,21 @@ class App:
                 lines=result if isinstance(result,list) else [result]
                 output=[]
                 for index,info in enumerate(lines,1):
+                    pv=info.get('pv',[])
+                    if not pv:continue
                     score=info.get('score'); pov=score.pov(board.turn) if score else None
                     mate=pov.mate() if pov else None
                     val=(f'Mate in {mate}' if mate is not None else f'{pov.score()/100:+.2f}' if pov and pov.score() is not None else '?')
-                    pv=info.get('pv',[]); copy=board.copy(); san=[]
+                    copy=board.copy(); san=[]
                     for move in pv[:14]:
+                        if move not in copy.legal_moves:break
                         san.append(copy.san(move));copy.push(move)
-                    output.append(f'#{index}  {val}  depth {info.get("depth","?")}\n'+ ' '.join(san))
+                    if san:output.append(f'#{index}  {val}  depth {info.get("depth","?")}\n'+ ' '.join(san))
+                if not output:
+                    message=self.T('El motor respondió, pero no entregó una variante de jugadas. Comprueba que sea un motor UCI compatible.',
+                                   'The engine responded but returned no principal variation. Check that it is a compatible UCI engine.')
+                    self.put(self.panels[name],message);self.results.pop(name,None);self.draw()
+                    continue
                 self.put(self.panels[name],'\n\n'.join(output));self.results[name]=(lines if name=='Stockfish' or isinstance(result,list) else lines[0]);self.explain(board);self.draw()
                 self.status.set(self.T('Análisis terminado','Analysis complete'))
         except queue.Empty:pass
