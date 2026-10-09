@@ -739,14 +739,20 @@ class App:
         def load(start_analysis):
             placement=fen_var.get().strip() or recognized
             if not placement:
-                self.start_pdf_diagram_editor();return
+                messagebox.showwarning(self.T('Diagrama','Diagram'),self.T(
+                    'No se leyó una posición. Marca solo el tablero, sin el texto de alrededor, o usa Editar posición.',
+                    'No position was read. Mark only the board, without the surrounding text, or use Edit position.'),parent=win)
+                return
             try:
                 board=chess.Board(f'{placement} {"w" if turn.get()=="White" else "b"} - - 0 1')
             except ValueError as err:
                 messagebox.showerror(self.T('Diagrama','Diagram'),str(err),parent=win);return
             self._load_diagram_board(board)
             win.destroy()
-            if start_analysis:self.w.after(150,lambda:self.analyze(engine_name=self.engine_view.get()))
+            if start_analysis:self.w.after(150,lambda:self.analyze(selected_only=True,engine_name=self.engine_view.get()))
+        if recognized:
+            try:self._load_diagram_board(chess.Board(f'{recognized} w - - 0 1'))
+            except ValueError:pass
         ttk.Button(buttons,text=self.T('Cargar y analizar','Load and analyze'),command=lambda:load(True)).pack(side='left')
         ttk.Button(buttons,text=self.T('Solo cargar','Load only'),command=lambda:load(False)).pack(side='left',padx=6)
         ttk.Button(buttons,text=self.T('Editar posición','Edit position'),command=self.start_pdf_diagram_editor).pack(side='left')
@@ -760,7 +766,8 @@ class App:
         self.board=board;self.selected=None;self.editor_mode=False
         self.side_to_move.set('White' if board.turn else 'Black')
         self.fen.set(board.fen());self.refresh_move_list();self.draw()
-        self.show_tools_view()
+        self.show_pdf_view()
+        self.status.set(self.T('Posición del diagrama cargada en el tablero.','Diagram position loaded on the board.'))
     def start_pdf_diagram_editor(self):
         self.pdf_diagram_pending=True
         self.start_position_editor()
