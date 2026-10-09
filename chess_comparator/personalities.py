@@ -28,6 +28,91 @@ PLAYERS = [
     {'id': 'Marshall', 'name': 'Frank Marshall', 'title': 'US champion 1909–1936', 'elo': 2570, 'country': 'United States', 'flag': 'us', 'style': 'Swashbuckling attack and counterattack.', 'white': 'd4 80%, e4 19%', 'black': 'e4: e5 79%. d4: d5 70%'},
 ]
 
+# Spanish presentation text for the personality browser. Names, Elo values,
+# and opening statistics remain as recorded; only prose labels/descriptions
+# are translated.
+SPANISH_TEXT = {
+    'Steinitz': {
+        'title': 'Campeón mundial de 1886 a 1894', 'country': 'Austria',
+        'style': 'Estilo posicional y defensivo. Acumulaba pequeñas ventajas.',
+    },
+    'Lasker': {
+        'title': 'Campeón mundial de 1894 a 1921', 'country': 'Alemania',
+        'style': 'Luchador práctico. Jugaba contra el rival, no solo contra la posición.',
+    },
+    'Capablanca': {
+        'title': 'Campeón mundial de 1921 a 1927', 'country': 'Cuba',
+        'style': 'Prefería posiciones sencillas y claras, y finales precisos.',
+    },
+    'Alekhine': {
+        'title': 'Campeón mundial de 1927 a 1935 y de 1937 a 1946', 'country': 'Rusia',
+        'style': 'Ataque incisivo y preparación profunda de aperturas.',
+    },
+    'Euwe': {
+        'title': 'Campeón mundial de 1935 a 1937', 'country': 'Países Bajos',
+        'style': 'Lógico y metódico. Preparaba las aperturas con cuidado.',
+    },
+    'Botvinnik': {
+        'title': 'Campeón mundial en 1948–1957, 1958–1960 y 1961–1963', 'country': 'Unión Soviética',
+        'style': 'Preparación científica y planes a largo plazo.',
+    },
+    'Tal': {
+        'title': 'Campeón mundial de 1960 a 1961', 'country': 'Letonia',
+        'style': 'Sacrificios, complicaciones e iniciativa.',
+    },
+    'Petrosian': {
+        'title': 'Campeón mundial de 1963 a 1969', 'country': 'Armenia',
+        'style': 'Profilaxis y defensa férrea. Evitaba el contrajuego del rival.',
+    },
+    'Spassky': {
+        'title': 'Campeón mundial de 1969 a 1972', 'country': 'Unión Soviética',
+        'style': 'Estilo universal: podía atacar o jugar posiciones tranquilas.',
+    },
+    'Fischer': {
+        'title': 'Campeón mundial de 1972 a 1975', 'country': 'Estados Unidos',
+        'style': 'Directo, concreto e incansable. Prefería 1.e4 y la Defensa Siciliana.',
+    },
+    'Karpov': {
+        'title': 'Campeón mundial de 1975 a 1985', 'country': 'Rusia',
+        'style': 'Restringía al rival y convertía pequeñas ventajas sin asumir riesgos.',
+    },
+    'Kasparov': {
+        'title': 'Campeón mundial de 1985 a 2000', 'country': 'Azerbaiyán',
+        'style': 'Preparación dinámica y presión desde la apertura.',
+    },
+    'Anand': {
+        'title': 'Campeón mundial de 2007 a 2013', 'country': 'India',
+        'style': 'Calculaba con rapidez. Usaba aperturas sólidas y remates tácticos.',
+    },
+    'Carlsen': {
+        'title': 'Campeón mundial de 2013 a 2023', 'country': 'Noruega',
+        'style': 'Estilo universal. Jugaba cualquier apertura y destacaba en los finales.',
+    },
+    'Ding': {
+        'title': 'Campeón mundial de 2023 a 2024', 'country': 'China',
+        'style': 'Sólido y preciso, con repentinos golpes tácticos.',
+    },
+    'Gukesh': {
+        'title': 'Campeón mundial desde 2024', 'country': 'India',
+        'style': 'Paciente y resistente. Sostiene la posición y contraataca.',
+    },
+    'Anderssen': {
+        'title': 'Campeón no oficial en las décadas de 1850 y 1860', 'country': 'Alemania',
+        'style': 'Ataque romántico, partidas abiertas y sacrificios.',
+    },
+    'Marshall': {
+        'title': 'Campeón de Estados Unidos de 1909 a 1936', 'country': 'Estados Unidos',
+        'style': 'Ataque audaz y contraataque.',
+    },
+}
+
+
+def display_text(player, field, language):
+    """Return a player's localized prose field for the selected UI language."""
+    if language != 'English':
+        return SPANISH_TEXT.get(player['id'], {}).get(field, player[field])
+    return player[field]
+
 
 def book_path(player):
     path = os.path.join(FOLDER, player['id'] + '.bin')

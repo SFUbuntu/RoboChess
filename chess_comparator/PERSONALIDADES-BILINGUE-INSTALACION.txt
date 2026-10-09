@@ -1,0 +1,12 @@
+RoboChess — Personalidades en español e inglés
+
+1. Cierra RoboChess.
+2. Extrae este ZIP sobre la carpeta principal del proyecto y acepta reemplazar
+   los archivos existentes.
+3. Abre RoboChess y selecciona English o Español en el menú de idioma antes de
+   abrir Partida > Personalidades.
+
+La ventana usa el idioma elegido para sus controles, títulos, países y
+explicaciones de estilo de juego de los 18 grandes maestros. Se incluyen
+app.py y chess_comparator/app.py, además de chess_comparator/personalities.py.
+Las imágenes, banderas y libros de apertura existentes no se reemplazan.

@@ -41,7 +41,7 @@ def _fatal(title, message):
     sys.exit(1)
 
 try:
-    import threading, queue, platform, math, tempfile, random, time, tkinter as tk, urllib.request, urllib.parse, io, webbrowser, csv, json
+    import threading, queue, platform, math, tempfile, random, time, tkinter as tk, urllib.request, urllib.parse, urllib.error, io, webbrowser, csv, json
     from pathlib import Path
     from tkinter import ttk, filedialog, messagebox, colorchooser, simpledialog
 except Exception:
@@ -59,6 +59,7 @@ try:
     import quad_tournament
     import lichess_puzzles
     import personalities
+    from lichess_video import LichessVideo
     from locale_ui import LABELS, SPANISH, choose
 except Exception:
     _fatal('RoboChess no pudo importar módulos', traceback.format_exc())
@@ -121,6 +122,8 @@ class App:
         names=self.ENGINE_NAMES
         for widget in (getattr(self,'engine_selector',None),getattr(self,'engine_view_selector',None)):
             if widget is not None:widget.configure(values=names)
+        video_selector=getattr(getattr(self,'lichess_video',None),'engine_selector',None)
+        if video_selector is not None:video_selector.configure(values=names)
         if select_name:
             self.play_engine.set(select_name);self.engine_view.set(select_name)
             if select_name not in self.BUILTIN_ENGINE_NAMES and hasattr(self,'show_engine_arrows'):
@@ -131,6 +134,7 @@ class App:
             self._rebuild_engine_menu()
         if select_name:
             self.show_engine_panel()
+            self._update_video_analysis_title()
     def _rebuild_engine_menu(self):
         menu=self.engines_menu;menu.delete(0,'end')
         for name in self.ENGINE_NAMES:
@@ -146,6 +150,7 @@ class App:
         if name not in self.ENGINE_NAMES:return
         self.play_engine.set(name);self.engine_view.set(name)
         self.show_engine_panel()
+        self._update_video_analysis_title()
         self.status.set(self.T(f'{name} seleccionado. Pulsa Analizar o inicia una partida.',f'{name} selected. Press Analyze or start a game.'))
     def __init__(self, window):
         self.w=window; window.title('RoboChess · Nibbler chess study'); window.geometry('1540x960'); window.minsize(1180,760)
@@ -187,6 +192,9 @@ class App:
         self.dgt_events=queue.Queue();self.dgt_link=None;self.dgt_port=''
         self.editor_mode=False;self.editor_piece=None;self.editor_saved_board=None;self.editor_choice=tk.StringVar(value='K')
         self.lichess_events=queue.Queue();self.lichess_games=[];self.database_games=[];self.lichess_username=tk.StringVar();self.database_label=tk.StringVar(value='Sin base PGN cargada / No PGN database loaded')
+        self.live_events=queue.Queue();self.live_token=0;self.live_round_id=None;self.live_source_kind='round';self.live_stop_event=None
+        self.live_games=[];self.live_follow_key=None;self.live_follow_plies=-1;self.live_follow_result='*';self.live_dialog=None;self.live_tree=None
+        self.live_url=tk.StringVar(value='');self.live_status=tk.StringVar(value='');self.live_auto_analyze=tk.BooleanVar(value=False)
         self.review_game=None;self.review_ply=0;self.review_label=tk.StringVar(value='—')
         self.engine_view=tk.StringVar(value='Stockfish');self.side_to_move=tk.StringVar(value='White')
         self.show_stockfish=tk.BooleanVar(value=True);self.show_crafty=tk.BooleanVar(value=True);self.show_robochess=tk.BooleanVar(value=True)
@@ -224,6 +232,20 @@ class App:
         board_frame.bind('<Configure>',self._fit_board)
         side=ttk.Frame(body,padding=(8,2));body.add(side,weight=1)
         self.study_view=ttk.Frame(side);self.study_view.pack(fill='both',expand=True)
+        self.video_view=ttk.Panedwindow(side,orient='vertical')
+        self.lichess_video=LichessVideo(
+            self.video_view,language=self.language.get(),
+            analyze_callback=self.analyze,engine_var=self.engine_view,
+            engine_names=self.ENGINE_NAMES,engine_callback=self.select_engine,
+            close_callback=self.show_study_view,
+        )
+        self.video_view.add(self.lichess_video.frame,weight=4)
+        self.video_analysis_frame=ttk.LabelFrame(self.video_view,text='',padding=4)
+        self.video_analysis=tk.Text(self.video_analysis_frame,height=7,wrap='word',state='disabled',font=('Consolas',10))
+        self.video_analysis.pack(fill='both',expand=True)
+        self.video_view.add(self.video_analysis_frame,weight=1)
+        self._update_video_analysis_title()
+        self.video_view.pack_forget()
         ttk.Label(self.study_view,textvariable=self.status,wraplength=560).pack(fill='x',pady=(0,5))
         self.move_frame=ttk.LabelFrame(self.study_view,text='Jugadas · notación algebraica / Moves · algebraic notation',padding=4);self.move_frame.pack(fill='both',expand=True,pady=(0,5))
         self.move_text=tk.Text(self.move_frame,height=5,wrap='word',state='disabled',font=('Consolas',10));self.move_text.pack(fill='both',expand=True)
@@ -259,6 +281,7 @@ class App:
         ttk.Label(lichbar,text='Usuario público / Public username:').pack(side='left')
         ttk.Entry(lichbar,textvariable=self.lichess_username,width=18).pack(side='left',padx=4)
         ttk.Button(lichbar,text='Cargar partidas / Fetch games',command=self.fetch_lichess_games).pack(side='left')
+        ttk.Button(lichbar,text='Partidas en vivo / Live games',command=self.open_live_broadcast_dialog).pack(side='left',padx=(4,0))
         lichcols=('date','white','black','result','opening','speed');self.lichess_tree=ttk.Treeview(lich_frame,columns=lichcols,show='headings',height=4)
         for key,title,width in [('date','Fecha / Date',95),('white','Blancas / White',120),('black','Negras / Black',120),('result','Resultado / Result',80),('opening','Apertura / Opening',200),('speed','Ritmo / Speed',85)]:self.lichess_tree.heading(key,text=title);self.lichess_tree.column(key,width=width,anchor='w')
         self.lichess_tree.pack(fill='both',expand=True);self.lichess_tree.bind('<Double-1>',self.open_lichess_game)
@@ -373,6 +396,7 @@ class App:
         view.add_command(label=self.T('Girar tablero','Flip board'),command=self.flip_board,accelerator='Ctrl+F')
         view.add_command(label=self.T('Estudio','Study'),command=self.show_study_view)
         view.add_command(label=self.T('Recursos','Resources'),command=self.show_tools_view)
+        view.add_command(label=self.T('Biblioteca de videos de Lichess…','Lichess Video Library…'),command=self.show_lichess_video,accelerator='Ctrl+Shift+L')
         view.add_command(label=self.T('Analizar posición','Analyze position'),command=self.analyze,accelerator='Ctrl+A')
         view.add_separator()
         view.add_checkbutton(label=self.T('Flechas de Stockfish','Stockfish arrows'),variable=self.show_stockfish,command=self.draw)
@@ -413,6 +437,7 @@ class App:
         bindings=(
             ('<Control-o>',self.load_pgn),('<Control-s>',self.save_pgn),
             ('<Control-Shift-p>',self.profile_dialog),('<Control-Shift-t>',self.training_dialog),
+            ('<Control-Shift-l>',self.show_lichess_video),
             ('<Control-z>',self.undo),('<Control-r>',self.reset),('<Control-f>',self.flip_board),
             ('<Control-a>',self.analyze),('<Control-m>',self.engine_match_dialog),('<Control-q>',self.close),
         )
@@ -425,6 +450,7 @@ class App:
             ('Guardar análisis PGN','Save analysis PGN','Ctrl+S'),
             ('Perfiles','Profiles','Ctrl+Shift+P'),
             ('Puzzles y ejercicios','Puzzles and exercises','Ctrl+Shift+T'),
+            ('Biblioteca de videos de Lichess','Lichess Video Library','Ctrl+Shift+L'),
             ('Deshacer jugada','Undo move','Ctrl+Z'),('Reiniciar tablero','Reset board','Ctrl+R'),
             ('Girar tablero','Flip board','Ctrl+F'),('Analizar posición','Analyze position','Ctrl+A'),
             ('Engine Match','Engine Match','Ctrl+M'),('Salir','Exit','Ctrl+Q'),
@@ -634,9 +660,16 @@ class App:
         self._refresh_engine_choices(name)
         self.status.set(self.T(f'{name} agregado ({reported}) y disponible en los selectores.',f'{name} added ({reported}) and available in engine selectors.'))
     def show_study_view(self):
-        self.tabs.pack_forget();self.study_view.pack(fill='both',expand=True)
+        self.lichess_video.unload()
+        self.tabs.pack_forget();self.video_view.pack_forget();self.study_view.pack(fill='both',expand=True)
     def show_tools_view(self):
-        self.study_view.pack_forget();self.tabs.pack(fill='both',expand=True)
+        self.lichess_video.unload()
+        self.study_view.pack_forget();self.video_view.pack_forget();self.tabs.pack(fill='both',expand=True)
+    def show_lichess_video(self):
+        self.study_view.pack_forget();self.tabs.pack_forget()
+        self.video_view.pack(fill='both',expand=True)
+        self.lichess_video.set_language(self.language.get())
+        self.lichess_video.load()
     def make_editor_palette(self):
         ttk.Label(self.editor_palette,text='Blancas / White:').pack(side='left',padx=3)
         labels={'K':'♔ Rey','Q':'♕ Dama','R':'♖ Torre','B':'♗ Alfil','N':'♘ Caballo','P':'♙ Peón',
@@ -679,6 +712,11 @@ class App:
     def show_engine_panel(self,event=None):
         for name,box in self.panels.items():box.pack_forget()
         self.panels[self.engine_view.get()].pack(fill='both',expand=True)
+    def _update_video_analysis_title(self):
+        frame=getattr(self,'video_analysis_frame',None)
+        if frame is None:return
+        name=self.engine_view.get()
+        frame.configure(text=self.T('Análisis del motor — {name}','Engine analysis — {name}').format(name=name))
     def refresh_move_list(self):
         if not hasattr(self,'move_text'):return
         board=self.board.root();rows=[]
@@ -763,6 +801,141 @@ class App:
                     h=game.headers;self.lichess_tree.insert('','end',iid=str(index),values=(h.get('UTCDate',h.get('Date','')),h.get('White','?'),h.get('Black','?'),h.get('Result','*'),h.get('Opening',h.get('ECO','')),h.get('TimeControl','')))
                 self.status.set(self.T(f'{len(games)} partidas cargadas de {username}. Doble clic para abrir.',f'Loaded {len(games)} games from {username}. Double-click to open.'))
         except queue.Empty:pass
+    def open_live_broadcast_dialog(self):
+        if self.live_dialog is not None and self.live_dialog.winfo_exists():
+            self.live_dialog.deiconify();self.live_dialog.lift();return
+        dialog=tk.Toplevel(self.w);self.live_dialog=dialog
+        dialog.title(self.T('Partidas en vivo de Lichess','Lichess live games'));dialog.geometry('840x510');dialog.minsize(680,400);dialog.transient(self.w)
+        frame=ttk.Frame(dialog,padding=12);frame.pack(fill='both',expand=True)
+        ttk.Label(frame,text=self.T('Pega el enlace de una ronda o torneo de Lichess:','Paste a Lichess round or tournament link:')).pack(anchor='w')
+        row=ttk.Frame(frame);row.pack(fill='x',pady=(5,8))
+        entry=ttk.Entry(row,textvariable=self.live_url);entry.pack(side='left',fill='x',expand=True)
+        ttk.Button(row,text=self.T('Conectar','Connect'),command=self.start_live_broadcast).pack(side='left',padx=(6,0))
+        ttk.Button(row,text=self.T('Detener','Stop'),command=self.stop_live_broadcast).pack(side='left',padx=(4,0))
+        columns=('white','black','moves','result')
+        self.live_tree=ttk.Treeview(frame,columns=columns,show='headings',height=13,selectmode='browse')
+        for key,title,width in [('white',self.T('Blancas','White'),220),('black',self.T('Negras','Black'),220),('moves',self.T('Jugadas','Moves'),80),('result',self.T('Resultado','Result'),100)]:
+            self.live_tree.heading(key,text=title);self.live_tree.column(key,width=width,anchor='w')
+        self.live_tree.pack(fill='both',expand=True);self.live_tree.bind('<Double-1>',lambda event:self.follow_live_game())
+        controls=ttk.Frame(frame);controls.pack(fill='x',pady=(8,3))
+        ttk.Button(controls,text=self.T('Seguir partida seleccionada','Follow selected game'),command=self.follow_live_game).pack(side='left')
+        ttk.Button(controls,text=self.T('Analizar con motor seleccionado','Analyze with selected engine'),command=lambda:self.analyze(selected_only=True)).pack(side='left',padx=5)
+        ttk.Checkbutton(controls,text=self.T('Analizar automáticamente cada nueva jugada','Auto-analyze each new move'),variable=self.live_auto_analyze).pack(side='left',padx=6)
+        ttk.Label(frame,textvariable=self.live_status,wraplength=800).pack(anchor='w',pady=(3,0))
+        dialog.protocol('WM_DELETE_WINDOW',self.close_live_broadcast_dialog)
+        entry.focus_set()
+        if self.live_round_id:self.live_status.set(self.T('Ronda conectada; actualizando las partidas cada 8 segundos.','Round connected; refreshing games every 8 seconds.'))
+    @staticmethod
+    def parse_live_broadcast_source(raw):
+        value=raw.strip()
+        if not value:raise ValueError('Paste a Lichess broadcast URL or ID.')
+        if value.lower().startswith(('lichess.org/','www.lichess.org/')):value='https://'+value
+        if '://' in value:
+            parsed=urllib.parse.urlparse(value)
+            host=(parsed.hostname or '').lower()
+            if host not in ('lichess.org','www.lichess.org'):raise ValueError('Use a public lichess.org broadcast link.')
+            parts=[part for part in parsed.path.strip('/').split('/') if part]
+            if len(parts)<3 or parts[0].lower()!='broadcast':raise ValueError('Use a broadcast round or tournament link from lichess.org.')
+            if len(parts)>=4:
+                kind='round';identifier=parts[-1]
+            else:
+                kind='tour';identifier=parts[-1]
+        else:
+            kind='round';identifier=value
+        if not 4<=len(identifier)<=32 or not all(ch.isalnum() or ch in '-_' for ch in identifier):
+            raise ValueError('The broadcast ID does not look valid.')
+        return kind,identifier
+    def start_live_broadcast(self):
+        try:kind,identifier=self.parse_live_broadcast_source(self.live_url.get())
+        except ValueError:
+            messagebox.showerror(self.T('Lichess en vivo','Lichess live'),self.T('Pega un enlace de retransmisión válido de Lichess o el identificador de una ronda.','Paste a valid Lichess broadcast link or a round ID.'),parent=self.live_dialog);return
+        self.stop_live_broadcast()
+        self.live_token+=1;token=self.live_token;self.live_source_kind=kind;self.live_round_id=identifier
+        self.live_follow_key=None;self.live_follow_plies=-1;self.live_follow_result='*';self.live_games=[]
+        if self.live_tree is not None:
+            for iid in self.live_tree.get_children():self.live_tree.delete(iid)
+        stop_event=threading.Event();self.live_stop_event=stop_event
+        self.live_status.set(self.T('Conectando y cargando partidas…','Connecting and loading games…'))
+        threading.Thread(target=self.live_broadcast_worker,args=(token,kind,identifier,stop_event),daemon=True).start()
+    def live_broadcast_worker(self,token,kind,identifier,stop_event):
+        endpoint=(f'https://lichess.org/api/broadcast/{identifier}.pgn' if kind=='tour'
+                  else f'https://lichess.org/api/broadcast/round/{identifier}.pgn')
+        while not stop_event.is_set():
+            try:
+                request=urllib.request.Request(endpoint,headers={'Accept':'application/x-chess-pgn','User-Agent':'RoboChess/Live (desktop chess study)'})
+                with urllib.request.urlopen(request,timeout=20) as response:
+                    text=response.read().decode('utf-8-sig',errors='replace')
+                stream=io.StringIO(text);games=[]
+                while True:
+                    game=chess.pgn.read_game(stream)
+                    if game is None:break
+                    games.append(game)
+                self.live_events.put((token,games,None))
+            except urllib.error.HTTPError as err:
+                message=f'HTTP {err.code}: {err.reason}'
+                self.live_events.put((token,[],message))
+                if 400<=err.code<500 and err.code!=429:break
+            except Exception as err:self.live_events.put((token,[],str(err)))
+            if stop_event.wait(8):break
+    @staticmethod
+    def live_game_key(game):
+        headers=game.headers
+        return (headers.get('Site',''),headers.get('Round',''),headers.get('White','?'),headers.get('Black','?'))
+    def follow_live_game(self):
+        if self.live_tree is None:return
+        selection=self.live_tree.selection()
+        if not selection:return
+        try:game=self.live_games[int(selection[0])]
+        except (IndexError,ValueError):return
+        self.live_follow_key=self.live_game_key(game);self.live_follow_plies=-1;self.live_follow_result='*'
+        self.apply_live_game(game,auto_analyze=True)
+    def apply_live_game(self,game,auto_analyze=False):
+        plies=sum(1 for _ in game.mainline_moves())
+        old_plies=self.live_follow_plies;self.live_follow_plies=plies
+        self.live_follow_result=game.headers.get('Result','*')
+        self.load_review_game(game)
+        headers=game.headers
+        message=self.T(f"En vivo · {headers.get('White','?')} – {headers.get('Black','?')} · {plies} jugadas · actualiza cada 8 s",
+                       f"Live · {headers.get('White','?')} – {headers.get('Black','?')} · {plies} plies · refreshes every 8 s")
+        self.status.set(message)
+        if auto_analyze and self.live_auto_analyze.get() and (old_plies<0 or plies>old_plies) and headers.get('Result','*')=='*':
+            self.w.after(150,lambda:self.analyze(selected_only=True))
+    def poll_live_broadcast(self):
+        try:
+            while True:
+                token,games,error=self.live_events.get_nowait()
+                if token!=self.live_token:continue
+                if error:
+                    self.live_status.set(self.T('No se pudo actualizar la retransmisión: ','Could not refresh broadcast: ')+error);continue
+                previous_key=self.live_follow_key;self.live_games=games
+                if self.live_tree is not None and self.live_tree.winfo_exists():
+                    for iid in self.live_tree.get_children():self.live_tree.delete(iid)
+                    followed_index=None
+                    for index,game in enumerate(games):
+                        h=game.headers;plies=sum(1 for _ in game.mainline_moves())
+                        key=self.live_game_key(game)
+                        if key==previous_key:followed_index=index
+                        self.live_tree.insert('','end',iid=str(index),values=(h.get('White','?'),h.get('Black','?'),plies,h.get('Result','*')))
+                    if followed_index is not None:
+                        iid=str(followed_index);self.live_tree.selection_set(iid);self.live_tree.see(iid)
+                        game=games[followed_index]
+                        plies=sum(1 for _ in game.mainline_moves())
+                        result=game.headers.get('Result','*')
+                        if plies!=self.live_follow_plies or result!=self.live_follow_result:
+                            self.apply_live_game(game,auto_analyze=True)
+                    label=self.T(f'{len(games)} partidas en la retransmisión. Selecciona una y pulsa Seguir.',
+                                 f'{len(games)} games in this broadcast. Select one and press Follow.')
+                    if previous_key and followed_index is None:label=self.T('La partida seguida ya no aparece en esta retransmisión.','The followed game is no longer in this broadcast.')
+                    self.live_status.set(label)
+        except queue.Empty:pass
+    def stop_live_broadcast(self):
+        if self.live_stop_event:self.live_stop_event.set()
+        self.live_stop_event=None;self.live_round_id=None;self.live_token+=1
+        if hasattr(self,'live_status'):self.live_status.set(self.T('Retransmisión detenida.','Broadcast stopped.'))
+    def close_live_broadcast_dialog(self):
+        self.stop_live_broadcast()
+        dialog=self.live_dialog;self.live_dialog=None;self.live_tree=None
+        if dialog is not None and dialog.winfo_exists():dialog.destroy()
     def first_configured_engine(self):
         return next((name for name in self.ENGINE_NAMES if self.paths.get(name)),None)
     @staticmethod
@@ -790,9 +963,11 @@ class App:
             except (tk.TclError,AttributeError):pass
             for child in widget.winfo_children():visit(child)
         visit(self.w)
+        if hasattr(self,'lichess_video'):self.lichess_video.set_language(self.language.get())
         if hasattr(self,'study_button'):self.study_button.configure(text=self.T('Estudio','Study'))
         if hasattr(self,'resources_button'):self.resources_button.configure(text=self.T('Recursos','Resources'))
         if hasattr(self,'seconds_label'):self.seconds_label.configure(text=self.T('Segundos por motor:','Seconds / engine:'))
+        self._update_video_analysis_title()
         if hasattr(self,'engines_menu'):self.make_menu()
         if not self.playing and not self.puzzle_active:self.status.set(self.T('Selecciona los motores y pulsa Analizar.','Select engines and press Analyze.'))
         if not self.playing:self.put(self.coach_text,self.T('Activa el tutor para recibir consejos. Pulsa Pista o Explicar.','Enable the tutor for advice. Press Hint or Explain.'))
@@ -1393,13 +1568,24 @@ class App:
             if game is None:raise ValueError('No game found')
             self.load_review_game(game)
         except Exception as err:messagebox.showerror('PGN',str(err))
-    def analyze(self):
+    def analyze(self,selected_only=False,engine_name=None):
         self.stop();self.playing=False;self.play_busy=False;self.puzzle_active=False
         self.stop_clock(settle=True);self.clock_selector.configure(state='readonly');self.abort_quad_match();token=self.epoch
         try:seconds=max(1,min(120,int(self.seconds.get())))
         except ValueError:seconds=3
-        board=self.board.copy();self.status.set('Analyzing…');self.results={};self.draw()
-        for name in self.ENGINE_NAMES:
+        board=self.board.copy();self.results={};self.draw()
+        chosen_name=engine_name or self.engine_view.get()
+        names=(chosen_name,) if selected_only else self.ENGINE_NAMES
+        if selected_only and chosen_name not in self.ENGINE_NAMES:
+            message=self.T(f'El motor seleccionado «{chosen_name}» no está instalado.','The selected engine "{chosen_name}" is not installed.')
+            self.put(self.video_analysis,message);self.status.set(message);return
+        if selected_only and not self.paths.get(chosen_name):
+            message=self.T(f'No hay un ejecutable configurado para {chosen_name}.','No executable is configured for {chosen_name}.')
+            self.put(self.video_analysis,message);self.status.set(message);return
+        self.status.set(self.T('Analizando con {name}…','Analyzing with {name}…').format(name=names[0]) if selected_only else self.T('Analizando…','Analyzing…'))
+        if hasattr(self,'video_analysis'):
+            self.put(self.video_analysis,self.T('Analizando posición actual con {name}…','Analyzing current position with {name}…').format(name=names[0]) if selected_only else self.T('Analizando posición actual…','Analyzing current position…'))
+        for name in names:
             self.put(self.panels[name],'Analyzing…' if self.paths[name] else 'Choose an executable to enable this engine.')
             if self.paths[name]:threading.Thread(target=self.worker,args=(name,self.paths[name],board.copy(),seconds,token),daemon=True).start()
     def open_engine(self,name,path):
@@ -2009,7 +2195,7 @@ class App:
     def personalities_dialog(self):
         players=personalities.PLAYERS
         dialog=tk.Toplevel(self.w)
-        dialog.title('Personalities')
+        dialog.title(self.T('Personalidades','Personalities'))
         dialog.transient(self.w);dialog.grab_set();dialog.geometry('980x680')
         dialog.configure(bg='#f4f5f7')
         selected={'player':players[2]}
@@ -2047,13 +2233,15 @@ class App:
             if photo:portrait.configure(image=photo)
             flag_image=load_image(personalities.flag_path(player),64)
             if flag_image:flag.configure(image=flag_image)
-            name_var.set(player['name']);title_var.set(player['title'])
+            name_var.set(player['name'])
+            title_var.set(personalities.display_text(player,'title',self.language.get()))
             info_var.set(
-                f"{player['country']}\n"
-                f"Elo  {player['elo']}\n\n"
-                f"Style\n{player['style']}\n\n"
-                f"White\n{player['white']}\n"
-                f"Black\n{player['black']}"
+                f"{personalities.display_text(player,'country',self.language.get())}\n"
+                f"{self.T('Elo','Elo')}  {player['elo']}\n\n"
+                f"{self.T('Estilo de juego','Playing style')}\n"
+                f"{personalities.display_text(player,'style',self.language.get())}\n\n"
+                f"{self.T('Con blancas','With White')}\n{player['white']}\n"
+                f"{self.T('Con negras','With Black')}\n{player['black']}"
             )
         for index,player in enumerate(players):
             card=tk.Frame(grid,bd=1,relief='flat',bg='white',highlightbackground='#d0d4da',highlightthickness=1)
@@ -2070,7 +2258,7 @@ class App:
         def play(color):
             player=selected['player']
             if not self.paths.get(self.play_engine.get()):
-                messagebox.showinfo('Personalities',self.T('Selecciona primero un motor en Motores.','Select an engine under Engines first.'))
+                messagebox.showinfo(self.T('Personalidades','Personalities'),self.T('Selecciona primero un motor en Motores.','Select an engine under Engines first.'))
                 return
             self.personality=player
             self.personality_book=personalities.book_path(player)
@@ -2079,9 +2267,9 @@ class App:
             self.target_elo.set(str(player['elo']))
             dialog.destroy()
             self.start_game()
-        ttk.Button(buttons,text='Play as White',command=lambda:play('White')).pack(side='left',padx=4)
-        ttk.Button(buttons,text='Play as Black',command=lambda:play('Black')).pack(side='left',padx=4)
-        ttk.Button(buttons,text='Cancel',command=dialog.destroy).pack(side='right',padx=4)
+        ttk.Button(buttons,text=self.T('Jugar con blancas','Play as White'),command=lambda:play('White')).pack(side='left',padx=4)
+        ttk.Button(buttons,text=self.T('Jugar con negras','Play as Black'),command=lambda:play('Black')).pack(side='left',padx=4)
+        ttk.Button(buttons,text=self.T('Cancelar','Cancel'),command=dialog.destroy).pack(side='right',padx=4)
         dialog.wait_window()
     def start_game(self):
         if self.quad and not self.quad_launch:self.quad=None
@@ -2564,6 +2752,16 @@ class App:
             probe.set_board_fen(placement)
         except Exception as err:
             self.status.set(self.T('No se pudo leer la posición DGT: ','Could not read the DGT position: ')+str(err));return
+        # Returning every physical piece to its standard square is an explicit
+        # board reset, like placing the pieces back after a game in ChessBase.
+        # Compare piece placement only because DGT does not report side to move.
+        if placement==chess.Board().board_fen() and placement!=self.board.board_fen():
+            if self.editor_mode or self.puzzle_active or self.review_game is not None or self.engine_match_running or (self.quad and self.quad.get('active')):
+                self.status.set(self.T('Termina el modo actual antes de reiniciar desde el tablero DGT.','Finish the current mode before resetting from the DGT board.'))
+                return
+            self.reset()
+            self.status.set(self.T('Tablero DGT en posición inicial: partida reiniciada.','DGT board returned to the starting position: game reset.'))
+            return
         if placement==self.board.board_fen():return
         if self.editor_mode or self.puzzle_active or self.review_game is not None or self.engine_match_running or (self.quad and self.quad.get('active')):
             self.status.set(self.T('Termina el modo actual antes de mover desde el tablero DGT.','Finish the current mode before entering moves from the DGT board.'))
@@ -2599,7 +2797,7 @@ class App:
             self.start_clock(self.board.turn)
             self.w.after(100,self.computer_turn)
     def poll(self):
-        self.poll_play();self.poll_coach();self.poll_lichess();self.poll_lichess_puzzles();self.poll_engine_match();self.poll_dgt()
+        self.poll_play();self.poll_coach();self.poll_lichess();self.poll_live_broadcast();self.poll_lichess_puzzles();self.poll_engine_match();self.poll_dgt()
         try:
             while True:
                 token,best,error=self.challenge_events.get_nowait()
@@ -2632,7 +2830,10 @@ class App:
             while True:
                 token,name,board,result,error=self.events.get_nowait()
                 if token!=self.epoch:continue
-                if error:self.put(self.panels[name],f'Engine error: {error}');continue
+                if error:
+                    self.put(self.panels[name],f'Engine error: {error}')
+                    if name==self.engine_view.get():self.put(self.video_analysis,f'Engine error: {error}')
+                    continue
                 lines=result if isinstance(result,list) else [result]
                 output=[]
                 for index,info in enumerate(lines,1):
@@ -2650,8 +2851,12 @@ class App:
                     message=self.T('El motor respondió, pero no entregó una variante de jugadas. Comprueba que sea un motor UCI compatible.',
                                    'The engine responded but returned no principal variation. Check that it is a compatible UCI engine.')
                     self.put(self.panels[name],message);self.results.pop(name,None);self.draw()
+                    if name==self.engine_view.get():self.put(self.video_analysis,message)
                     continue
-                self.put(self.panels[name],'\n\n'.join(output));self.results[name]=(lines if name=='Stockfish' or isinstance(result,list) else lines[0]);self.explain(board);self.draw()
+                rendered='\n\n'.join(output)
+                self.put(self.panels[name],rendered)
+                if name==self.engine_view.get():self.put(self.video_analysis,rendered)
+                self.results[name]=(lines if name=='Stockfish' or isinstance(result,list) else lines[0]);self.explain(board);self.draw()
                 self.status.set(self.T('Análisis terminado','Analysis complete'))
         except queue.Empty:pass
         self.w.after(100,self.poll)
@@ -2735,7 +2940,9 @@ class App:
         self.status.set('Saved '+path)
     def close(self):
         if self.engine_match_stop:self.engine_match_stop.set()
+        self.stop_live_broadcast()
         self.disconnect_dgt()
+        if hasattr(self,'lichess_video'):self.lichess_video.destroy()
         self.stop();self.w.destroy()
 
 def show_splash(root):
