@@ -1,4 +1,4 @@
-"""Best-effort recognition of a printed chess diagram crop."""
+"""Recognize printed chess diagrams, including hatched book diagrams."""
 from __future__ import annotations
 
 import io
@@ -7,75 +7,96 @@ import chess
 
 
 def recognize_diagram(png_data):
-    """Return a FEN board placement, or None if the crop is not a board.
-
-    Piece types are estimated from the ink shape. The caller should let the
-    user confirm the side to move before analysis.
-    """
     try:
         from PIL import Image
     except ImportError:
         return None
-    image = Image.open(io.BytesIO(png_data)).convert('RGB')
-    if image.width < 80 or image.height < 80:
-        return None
+    image = Image.open(io.BytesIO(png_data)).convert('L')
     side = min(image.width, image.height)
+    if side < 70:
+        return None
     image = image.crop((0, 0, side, side)).resize((256, 256))
     cell = 32
-    squares = []
-    for rank in range(8):
-        for file in range(8):
-            crop = image.crop((file * cell + 4, rank * cell + 4, (file + 1) * cell - 4, (rank + 1) * cell - 4))
-            pixels = list(crop.getdata())
-            mean = tuple(sum(channel) / len(pixels) for channel in zip(*pixels))
-            variance = sum(sum((pixel[i] - mean[i]) ** 2 for i in range(3)) for pixel in pixels) / len(pixels)
-            squares.append((mean, variance, pixels))
-    empty_light = _background([squares[i] for i in range(64) if (i // 8 + i % 8) % 2 == 0])
-    empty_dark = _background([squares[i] for i in range(64) if (i // 8 + i % 8) % 2 == 1])
     board = chess.Board.empty()
     occupied = 0
-    for index, (mean, variance, pixels) in enumerate(squares):
-        dark = (index // 8 + index % 8) % 2 == 1
-        background = empty_dark if dark else empty_light
-        distance = sum(abs(mean[i] - background[i]) for i in range(3))
-        if variance < 180 and distance < 28:
-            continue
-        occupied += 1
-        color = chess.BLACK if sum(mean) < sum(background) - 18 else chess.WHITE
-        piece = _piece_type(pixels, background)
-        board.set_piece_at(chess.square(index % 8, 7 - index // 8), chess.Piece(piece, color))
-    if occupied < 2 or occupied > 32:
+    for rank in range(8):
+        for file in range(8):
+            crop = image.crop((file * cell + 3, rank * cell + 3, (file + 1) * cell - 3, (rank + 1) * cell - 3))
+            kind = _square_kind(crop)
+            if kind is None:
+                continue
+            color, piece = kind
+            board.set_piece_at(chess.square(file, 7 - rank), chess.Piece(piece, color))
+            occupied += 1
+    if occupied < 1 or occupied > 32:
         return None
     return board.board_fen()
 
 
-def _background(samples):
-    quiet = sorted(samples, key=lambda item: item[1])[:6]
-    return tuple(sum(item[0][channel] for item in quiet) / len(quiet) for channel in range(3))
+def _trim_board(image):
+    pixels = image.load()
+    width, height = image.size
+    xs = [x for y in range(height) for x in range(width) if pixels[x, y] < 90]
+    ys = [y for y in range(height) for x in range(width) if pixels[x, y] < 90]
+    if len(xs) < 40:
+        return None
+    left, right = max(0, min(xs) - 2), min(width, max(xs) + 3)
+    top, bottom = max(0, min(ys) - 2), min(height, max(ys) + 3)
+    if right - left < 70 or bottom - top < 70:
+        return None
+    return image.crop((left, top, right, bottom))
 
 
-def _piece_type(pixels, background):
-    ink = [pixel for pixel in pixels if sum(abs(pixel[i] - background[i]) for i in range(3)) > 45]
-    if len(ink) < 8:
-        return chess.PAWN
-    width = 24
-    rows = [0] * width
-    cols = [0] * width
-    for offset, pixel in enumerate(pixels):
-        if sum(abs(pixel[i] - background[i]) for i in range(3)) <= 45:
+def _square_kind(crop):
+    data = list(crop.getdata())
+    dark = [pixel < 105 for pixel in data]
+    ratio = sum(dark) / len(data)
+    if ratio < 0.12:
+        return None
+    width = crop.width
+    center = [pixel for index, pixel in enumerate(data)
+              if width * 0.22 < index % width < width * 0.78 and width * 0.18 < index // width < width * 0.84]
+    center_ratio = sum(pixel < 105 for pixel in center) / max(1, len(center))
+    periodic = _hatch_score(data, width)
+    if center_ratio < 0.30 or periodic > 0.76:
+        return None
+    color = chess.BLACK if center_ratio > 0.36 else chess.WHITE
+    return color, _piece_type(data, width)
+
+
+def _hatch_score(data, width):
+    hits = 0
+    checks = 0
+    for index, dark in enumerate(pixel < 105 for pixel in data):
+        x, y = index % width, index // width
+        if x + 3 >= width or y + 3 >= width:
             continue
-        rows[offset // width] += 1
-        cols[offset % width] += 1
-    top = sum(rows[:8])
-    bottom = sum(rows[-8:])
-    height = sum(1 for count in rows if count)
-    width_used = sum(1 for count in cols if count)
-    if height >= 16 and width_used >= 12 and top > bottom:
-        return chess.QUEEN if top > bottom * 1.4 else chess.KING
-    if height >= 14 and width_used <= 8:
+        other = data[(y + 3) * width + (x + 3)] < 105
+        checks += 1
+        hits += dark == other
+    return hits / checks if checks else 0
+
+
+def _piece_type(data, width):
+    ink = [index for index, pixel in enumerate(data) if pixel < 105 and width * 0.18 < index % width < width * 0.82]
+    if len(ink) < 6:
+        return chess.PAWN
+    rows = {}
+    cols = {}
+    for index in ink:
+        rows[index // width] = rows.get(index // width, 0) + 1
+        cols[index % width] = cols.get(index % width, 0) + 1
+    top = min(rows)
+    height = max(rows) - top + 1
+    top_mass = sum(count for row, count in rows.items() if row < top + height * 0.35)
+    bottom_mass = sum(count for row, count in rows.items() if row > top + height * 0.65)
+    used_width = len(cols)
+    if used_width >= width * 0.45 and top_mass > bottom_mass:
+        return chess.KING
+    if used_width <= width * 0.34 and height > width * 0.45:
         return chess.ROOK
-    if top > bottom * 1.6 and height < 15:
+    if top_mass > bottom_mass * 1.3:
         return chess.BISHOP
-    if width_used >= 12 and height < 15:
+    if used_width >= width * 0.4:
         return chess.KNIGHT
     return chess.PAWN

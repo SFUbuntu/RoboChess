@@ -752,8 +752,7 @@ class App:
             placement=(self._pdf_diagram_fen.get().strip() if getattr(self,'_pdf_diagram_fen',None) else '')
             turn=self._pdf_diagram_turn.get() if getattr(self,'_pdf_diagram_turn',None) else 'White'
             if not placement:
-                self.start_pdf_diagram_editor()
-                self.status.set(self.T('No había posición leída. El editor quedó abierto en el tablero.','No position was read. The editor is open on the board.'))
+                self.status.set(self.T('El recuadro de la posición está vacío. Marca solo el tablero y vuelve a pulsar Cargar.','The position box is empty. Mark only the board, then press Load again.'))
                 return
             board=chess.Board(f'{placement} {"w" if turn=="White" else "b"} - - 0 1')
             self._load_diagram_board(board)
