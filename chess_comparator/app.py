@@ -736,29 +736,34 @@ class App:
         fen_var=tk.StringVar(value=recognized or '')
         ttk.Entry(frame,textvariable=fen_var).pack(fill='x',pady=4)
         buttons=ttk.Frame(frame);buttons.pack(fill='x',pady=(4,0))
-        def load(start_analysis):
-            placement=fen_var.get().strip() or recognized
-            if not placement:
-                messagebox.showwarning(self.T('Diagrama','Diagram'),self.T(
-                    'No se leyó una posición. Marca solo el tablero, sin el texto de alrededor, o usa Editar posición.',
-                    'No position was read. Mark only the board, without the surrounding text, or use Edit position.'),parent=win)
-                return
-            try:
-                board=chess.Board(f'{placement} {"w" if turn.get()=="White" else "b"} - - 0 1')
-            except ValueError as err:
-                messagebox.showerror(self.T('Diagrama','Diagram'),str(err),parent=win);return
-            self._load_diagram_board(board)
-            win.destroy()
-            if start_analysis:self.w.after(150,lambda:self.analyze(selected_only=True,engine_name=self.engine_view.get()))
-        if recognized:
-            try:self._load_diagram_board(chess.Board(f'{recognized} w - - 0 1'))
-            except ValueError:pass
-        ttk.Button(buttons,text=self.T('Cargar y analizar','Load and analyze'),command=lambda:load(True)).pack(side='left')
-        ttk.Button(buttons,text=self.T('Solo cargar','Load only'),command=lambda:load(False)).pack(side='left',padx=6)
+        self._pdf_diagram_turn=turn
+        self._pdf_diagram_fen=fen_var
+        self._pdf_diagram_png=png_data
+        ttk.Button(buttons,text=self.T('Cargar y analizar','Load and analyze'),command=lambda:self.load_marked_diagram(True)).pack(side='left')
+        ttk.Button(buttons,text=self.T('Solo cargar','Load only'),command=lambda:self.load_marked_diagram(False)).pack(side='left',padx=6)
         ttk.Button(buttons,text=self.T('Editar posición','Edit position'),command=self.start_pdf_diagram_editor).pack(side='left')
         ttk.Button(buttons,text=self.T('Cancelar','Cancel'),command=win.destroy).pack(side='right')
-        if recognized:self.status.set(self.T('Diagrama marcado. Revisa quién mueve y pulsa Cargar y analizar.','Diagram marked. Check who moves, then Load and analyze.'))
-        else:self.status.set(self.T('No se pudo leer el diagrama automáticamente. Coloca las piezas en el editor.','The diagram could not be read automatically. Place the pieces in the editor.'))
+        win.lift()
+        if recognized:self.status.set(self.T('Diagrama marcado. Pulsa Cargar y analizar.','Diagram marked. Press Load and analyze.'))
+        else:self.status.set(self.T('No se leyeron piezas. Cargar abre el editor para colocarlas.','No pieces were read. Load opens the editor so you can place them.'))
+    def load_marked_diagram(self,start_analysis):
+        self.status.set(self.T('Cargando diagrama en el tablero…','Loading diagram onto the board…'))
+        try:
+            placement=(self._pdf_diagram_fen.get().strip() if getattr(self,'_pdf_diagram_fen',None) else '')
+            turn=self._pdf_diagram_turn.get() if getattr(self,'_pdf_diagram_turn',None) else 'White'
+            if not placement:
+                self.start_pdf_diagram_editor()
+                self.status.set(self.T('No había posición leída. El editor quedó abierto en el tablero.','No position was read. The editor is open on the board.'))
+                return
+            board=chess.Board(f'{placement} {"w" if turn=="White" else "b"} - - 0 1')
+            self._load_diagram_board(board)
+            if getattr(self,'pdf_diagram_window',None) is not None:
+                self.pdf_diagram_window.destroy()
+            if start_analysis:
+                self.w.after(150,lambda:self.analyze(selected_only=True,engine_name=self.engine_view.get()))
+        except Exception as err:
+            self.status.set(self.T('No se pudo cargar el diagrama: ','Could not load the diagram: ')+str(err))
+            messagebox.showerror(self.T('Diagrama','Diagram'),str(err),parent=self.w)
     def _load_diagram_board(self,board):
         self.stop();self.playing=False;self.play_busy=False;self.puzzle_active=False
         self.stop_clock(settle=False);self.clock_selector.configure(state='readonly')
