@@ -1,0 +1,71 @@
+ROBOCHESS — UPDATE NOTES
+Updated: October 9, 2026
+
+RECENT CHANGES
+
+• Fixed a startup crash in the Lichess Video Library module. The error was:
+  TypeError: LichessVideo.__init__() got an unexpected keyword argument
+  'close_callback'
+  It happened when app.py from a newer update was used with an older
+  lichess_video.py. The application passed the close_callback option, but the
+  older module did not support it. The matching application and video-module
+  files are now synchronized. Install files from the same update together;
+  do not mix app.py and lichess_video.py from different versions.
+
+• Added a Close Videos control to the Lichess Video Library. It stops and
+  closes the temporary video view and returns to the Study screen. The module
+  is restricted to the video library; Lichess login and game pages are blocked
+  in this view. The analysis board remains available alongside the video.
+
+• Added automatic DGT board reset. When all pieces are returned to their
+  standard starting squares, RoboChess resets the game, stops the engine and
+  clock, and restores White to move. Temporary piece lifts and incomplete
+  placements are ignored. The reset is unavailable in editor, puzzle, review,
+  Engine Match, and Quad tournament modes.
+
+• Localized the Game > Personalities dialog for English and Spanish. Its
+  controls, champion titles, countries, and playing-style descriptions are
+  translated for all 18 grandmasters. Names, Elo values, and algebraic opening
+  statistics are unchanged.
+
+• Added an embedded PDF chess-book reader beside the analysis board. It can
+  open and render pages, show extracted/OCR text, navigate the book, and zoom.
+  Players can paste a move line in Spanish descriptive notation or algebraic
+  SAN, validate and play it on the board, choose an engine for analysis, and
+  export the line as PGN. Descriptive moves are resolved from the current legal
+  position; ambiguous moves are rejected instead of guessed.
+
+• Added mouse selection for chess diagrams in PDF pages. The selected image
+  opens as a reference while the user places its pieces on the board editor.
+  Applying the verified position loads it onto the analysis board and starts
+  the selected engine automatically. Piece recognition is manual in this
+  build; review the position before applying it.
+
+FEATURES IN THIS BUILD
+
+• Compare chess-engine analysis, including Stockfish candidate lines and
+  Crafty's principal line, with evaluation bar and board arrows.
+• Save analysis as PGN or text for later review in chess software.
+• Play against configured engines, use game clocks and game controls, and
+  review training progress with local profiles and tutor feedback.
+• Connect a DGT Smart Board through its serial port to enter moves physically.
+• Use chess resources and exercises, including opening books, piece styles,
+  endgame tables, and training positions bundled with the project.
+
+The PDF reader uses the optional PyMuPDF package. Install it with
+`py -m pip install -r requirements-pdf.txt` from `chess_comparator`, or with
+`py -m pip install -r chess_comparator/requirements-pdf.txt` from the project
+folder. The original PDF is not rewritten; each pasted line is converted and
+checked on the analysis board.
+
+SETUP NOTES
+
+• Keep the folder structure when extracting an update.
+• For the Lichess crash fix, update the matching app.py and lichess_video.py
+  files together.
+• DGT use requires a working DGT driver and the optional dependencies listed
+  in requirements-dgt.txt. The Windows WebView2 Runtime may be required for the
+  embedded video library.
+• Engine strength and analysis depend on the selected engine, its settings,
+  and the available search time. Elo settings are approximate, not official
+  ratings.

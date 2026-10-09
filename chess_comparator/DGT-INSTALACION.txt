@@ -20,7 +20,10 @@ RoboChess — conexión DGT (Windows)
 
 La conexión recibe la posición física del tablero. Para aplicar una jugada, las
 piezas deben terminar en una posición legal a partir de la posición actual de
-RoboChess. Esta versión no mueve físicamente las piezas ni sincroniza el reloj.
+RoboChess. Si colocas todas las piezas en sus casillas iniciales, RoboChess
+reinicia automáticamente la partida y detiene el motor y el reloj. Los cambios
+parciales al levantar o acomodar piezas no alteran la partida. Esta versión no
+mueve físicamente las piezas ni sincroniza el reloj.
 
 El protocolo asyncdgt incluido en vendor/asyncdgt conserva su licencia GPL-3.0;
 consulta vendor/asyncdgt/LICENSE.txt antes de redistribuir RoboChess.

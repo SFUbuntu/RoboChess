@@ -17,6 +17,14 @@ A personal-use desktop analysis prototype with the board piece artwork from Nibb
 
 The **Partida → Personalidades / Game → Personalities** dialog follows the selected English/Español language. Its labels, buttons, champion titles, countries, and playing-style descriptions are translated for all 18 grandmasters; names, Elo values, and algebraic opening statistics remain unchanged.
 
+## PDF chess-book reader
+
+Choose **File → Open chess book PDF** (or press **Ctrl+Shift+B**) to read a book beside the analysis board. The reader shows rendered pages, extracted/OCR text, page navigation, and zoom. In **Follow moves**, paste one move sequence and choose Spanish descriptive notation or algebraic SAN. For descriptive notation, first set up the position shown in the book's diagram with **Edit → Edit position**. RoboChess validates the entire line against legal moves, displays the converted SAN line, and plays it on the board. Choose an engine and press **Analyze board** to inspect the resulting position; the line can also be saved as PGN.
+
+To study a printed diagram, open its PDF page and choose **Select diagram with mouse**. Drag around the board. RoboChess opens the selected image as a reference; choose **Set up position**, place the pieces with the main-board editor, choose whose turn it is, and press **Apply**. RoboChess then loads the position and starts analysis with the selected engine. Piece recognition is manual in this version, so compare the board with the reference before applying it. Castling rights and en-passant state are not visible in a static diagram; enter those through FEN when they matter.
+
+Descriptive notation depends on the exact position and can be ambiguous. The reader reports a move it cannot resolve instead of guessing. The attached *Fundamentos del ajedrez* PDF is a ClearScan/OCR scan; OCR sometimes confuses characters in move text, so check the converted line against the printed page. The reader does not rewrite every page of the source PDF. Install its optional renderer from `requirements-pdf.txt` with `py -m pip install -r requirements-pdf.txt`.
+
 ## Start
 
 Python 3.10+ with Tkinter is needed. The `python-chess` package is included in `vendor` for offline use. On Linux run `python3 app.py`; on Windows run `py app.py`. Choose the Stockfish 19 executable and Crafty executable using the two buttons. The supplied Linux Crafty binary is preselected on Linux. The uploaded Stockfish archive includes a Windows `.exe`, which you can select after extracting it. The uploaded Crafty source does not include a Windows executable: compile its `src/makefile.win` with the required compiler, or obtain a compatible Crafty build from its author, then select it in the app. Nibbler's original Electron source is separate: this is a new interface using its board artwork, not a patch to Nibbler's single-engine analysis loop.

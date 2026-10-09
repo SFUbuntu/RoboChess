@@ -1,0 +1,2 @@
+# Optional embedded PDF book reader.
+PyMuPDF>=1.23

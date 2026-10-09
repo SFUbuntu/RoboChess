@@ -41,7 +41,7 @@ def _fatal(title, message):
     sys.exit(1)
 
 try:
-    import threading, queue, platform, math, tempfile, random, time, tkinter as tk, urllib.request, urllib.parse, urllib.error, io, webbrowser, csv, json
+    import threading, queue, platform, math, tempfile, random, time, tkinter as tk, urllib.request, urllib.parse, urllib.error, io, webbrowser, csv, json, base64
     from pathlib import Path
     from tkinter import ttk, filedialog, messagebox, colorchooser, simpledialog
 except Exception:
@@ -60,6 +60,8 @@ try:
     import lichess_puzzles
     import personalities
     from lichess_video import LichessVideo
+    from pdf_book_reader import PDFBookReader
+    from descriptive_notation import parse_line as parse_chess_book_line
     from locale_ui import LABELS, SPANISH, choose
 except Exception:
     _fatal('RoboChess no pudo importar módulos', traceback.format_exc())
@@ -124,6 +126,8 @@ class App:
             if widget is not None:widget.configure(values=names)
         video_selector=getattr(getattr(self,'lichess_video',None),'engine_selector',None)
         if video_selector is not None:video_selector.configure(values=names)
+        pdf_reader=getattr(self,'pdf_reader',None)
+        if pdf_reader is not None:pdf_reader.refresh_engines(names)
         if select_name:
             self.play_engine.set(select_name);self.engine_view.set(select_name)
             if select_name not in self.BUILTIN_ENGINE_NAMES and hasattr(self,'show_engine_arrows'):
@@ -191,6 +195,7 @@ class App:
         self.engine_match_window=None;self.engine_match_games=[];self.engine_match_running=False
         self.dgt_events=queue.Queue();self.dgt_link=None;self.dgt_port=''
         self.editor_mode=False;self.editor_piece=None;self.editor_saved_board=None;self.editor_choice=tk.StringVar(value='K')
+        self.pdf_diagram_pending=False;self.pdf_diagram_photo=None;self.pdf_diagram_window=None
         self.lichess_events=queue.Queue();self.lichess_games=[];self.database_games=[];self.lichess_username=tk.StringVar();self.database_label=tk.StringVar(value='Sin base PGN cargada / No PGN database loaded')
         self.live_events=queue.Queue();self.live_token=0;self.live_round_id=None;self.live_source_kind='round';self.live_stop_event=None
         self.live_games=[];self.live_follow_key=None;self.live_follow_plies=-1;self.live_follow_result='*';self.live_dialog=None;self.live_tree=None
@@ -246,6 +251,25 @@ class App:
         self.video_view.add(self.video_analysis_frame,weight=1)
         self._update_video_analysis_title()
         self.video_view.pack_forget()
+        self.pdf_view=ttk.Panedwindow(side,orient='vertical')
+        self.pdf_reader=PDFBookReader(
+            self.pdf_view,language_getter=lambda:self.language.get(),
+            engine_var=self.engine_view,engine_names=self.ENGINE_NAMES,
+            engine_callback=self.select_engine,
+            analyze_callback=lambda name:self.analyze(selected_only=True,engine_name=name),
+            apply_line_callback=self.apply_pdf_line,
+            edit_position_callback=self.start_position_editor,
+            diagram_callback=self.preview_pdf_diagram,
+            save_pgn_callback=self.save_pdf_line_pgn,
+            close_callback=self.show_study_view,
+        )
+        self.pdf_view.add(self.pdf_reader,weight=4)
+        self.pdf_analysis_frame=ttk.LabelFrame(self.pdf_view,text='',padding=4)
+        self.pdf_analysis=tk.Text(self.pdf_analysis_frame,height=7,wrap='word',state='disabled',font=('Consolas',10))
+        self.pdf_analysis.pack(fill='both',expand=True)
+        self.pdf_view.add(self.pdf_analysis_frame,weight=1)
+        self.pdf_view.pack_forget()
+        self._update_video_analysis_title()
         ttk.Label(self.study_view,textvariable=self.status,wraplength=560).pack(fill='x',pady=(0,5))
         self.move_frame=ttk.LabelFrame(self.study_view,text='Jugadas · notación algebraica / Moves · algebraic notation',padding=4);self.move_frame.pack(fill='both',expand=True,pady=(0,5))
         self.move_text=tk.Text(self.move_frame,height=5,wrap='word',state='disabled',font=('Consolas',10));self.move_text.pack(fill='both',expand=True)
@@ -371,6 +395,7 @@ class App:
         bar=tk.Menu(self.w);self.menu_bar=bar;self.w.configure(menu=bar)
         filemenu=tk.Menu(bar,tearoff=0);bar.add_cascade(label=self.T('Archivo','File'),menu=filemenu)
         filemenu.add_command(label=self.T('Abrir partida PGN…','Open PGN game…'),command=self.load_pgn,accelerator='Ctrl+O')
+        filemenu.add_command(label=self.T('Abrir libro de ajedrez PDF…','Open chess book PDF…'),command=self.open_pdf_book,accelerator='Ctrl+Shift+B')
         filemenu.add_command(label=self.T('Importar base de partidas PGN…','Import PGN game database…'),command=self.open_pgn_database)
         filemenu.add_command(label=self.T('Guardar partida…','Save game…'),command=self.save_game)
         filemenu.add_command(label=self.T('Guardar análisis en PGN…','Save analysis as PGN…'),command=self.save_pgn,accelerator='Ctrl+S')
@@ -397,6 +422,7 @@ class App:
         view.add_command(label=self.T('Estudio','Study'),command=self.show_study_view)
         view.add_command(label=self.T('Recursos','Resources'),command=self.show_tools_view)
         view.add_command(label=self.T('Biblioteca de videos de Lichess…','Lichess Video Library…'),command=self.show_lichess_video,accelerator='Ctrl+Shift+L')
+        view.add_command(label=self.T('Leer libro PDF…','Read PDF chess book…'),command=self.open_pdf_book,accelerator='Ctrl+Shift+B')
         view.add_command(label=self.T('Analizar posición','Analyze position'),command=self.analyze,accelerator='Ctrl+A')
         view.add_separator()
         view.add_checkbutton(label=self.T('Flechas de Stockfish','Stockfish arrows'),variable=self.show_stockfish,command=self.draw)
@@ -438,6 +464,7 @@ class App:
             ('<Control-o>',self.load_pgn),('<Control-s>',self.save_pgn),
             ('<Control-Shift-p>',self.profile_dialog),('<Control-Shift-t>',self.training_dialog),
             ('<Control-Shift-l>',self.show_lichess_video),
+            ('<Control-Shift-b>',self.open_pdf_book),
             ('<Control-z>',self.undo),('<Control-r>',self.reset),('<Control-f>',self.flip_board),
             ('<Control-a>',self.analyze),('<Control-m>',self.engine_match_dialog),('<Control-q>',self.close),
         )
@@ -451,6 +478,7 @@ class App:
             ('Perfiles','Profiles','Ctrl+Shift+P'),
             ('Puzzles y ejercicios','Puzzles and exercises','Ctrl+Shift+T'),
             ('Biblioteca de videos de Lichess','Lichess Video Library','Ctrl+Shift+L'),
+            ('Abrir libro de ajedrez PDF','Open chess book PDF','Ctrl+Shift+B'),
             ('Deshacer jugada','Undo move','Ctrl+Z'),('Reiniciar tablero','Reset board','Ctrl+R'),
             ('Girar tablero','Flip board','Ctrl+F'),('Analizar posición','Analyze position','Ctrl+A'),
             ('Engine Match','Engine Match','Ctrl+M'),('Salir','Exit','Ctrl+Q'),
@@ -661,15 +689,115 @@ class App:
         self.status.set(self.T(f'{name} agregado ({reported}) y disponible en los selectores.',f'{name} added ({reported}) and available in engine selectors.'))
     def show_study_view(self):
         self.lichess_video.unload()
-        self.tabs.pack_forget();self.video_view.pack_forget();self.study_view.pack(fill='both',expand=True)
+        self.tabs.pack_forget();self.video_view.pack_forget();self.pdf_view.pack_forget();self.study_view.pack(fill='both',expand=True)
     def show_tools_view(self):
         self.lichess_video.unload()
-        self.study_view.pack_forget();self.video_view.pack_forget();self.tabs.pack(fill='both',expand=True)
+        self.study_view.pack_forget();self.video_view.pack_forget();self.pdf_view.pack_forget();self.tabs.pack(fill='both',expand=True)
     def show_lichess_video(self):
-        self.study_view.pack_forget();self.tabs.pack_forget()
+        self.study_view.pack_forget();self.tabs.pack_forget();self.pdf_view.pack_forget()
         self.video_view.pack(fill='both',expand=True)
         self.lichess_video.set_language(self.language.get())
         self.lichess_video.load()
+    def show_pdf_view(self):
+        self.lichess_video.unload()
+        self.study_view.pack_forget();self.tabs.pack_forget();self.video_view.pack_forget()
+        self.pdf_view.pack(fill='both',expand=True)
+        self.pdf_reader.set_language()
+    def open_pdf_book(self):
+        self.show_pdf_view()
+        self.pdf_reader.open_dialog()
+    def preview_pdf_diagram(self,png_data):
+        if getattr(self,'pdf_diagram_window',None) is not None:
+            try:self.pdf_diagram_window.destroy()
+            except tk.TclError:pass
+        import diagram_recognize
+        recognized=diagram_recognize.recognize_diagram(png_data)
+        win=tk.Toplevel(self.w);self.pdf_diagram_window=win
+        win.title(self.T('Diagrama seleccionado','Selected diagram'))
+        win.transient(self.w)
+        frame=ttk.Frame(win,padding=10);frame.pack(fill='both',expand=True)
+        try:
+            photo=tk.PhotoImage(data=base64.b64encode(png_data).decode('ascii'))
+            factor=max(1,math.ceil(max(photo.width(),photo.height())/420))
+            if factor>1:photo=photo.subsample(factor,factor)
+            self.pdf_diagram_photo=photo
+            ttk.Label(frame,image=photo).pack(pady=(0,8))
+        except Exception as err:
+            ttk.Label(frame,text=f'PNG: {err}').pack()
+        ttk.Label(frame,wraplength=460,justify='left',text=self.T(
+            'El diagrama marcado se interpreta y se carga en el tablero de análisis. Elige quién mueve y pulsa Analizar. Si una pieza no coincide, corrígela en el editor.',
+            'The marked diagram is interpreted and loaded on the analysis board. Choose who moves, then Analyze. If a piece does not match, correct it in the editor.'
+        )).pack(fill='x')
+        turn=tk.StringVar(value='White')
+        row=ttk.Frame(frame);row.pack(fill='x',pady=6)
+        ttk.Label(row,text=self.T('Juegan','To move')).pack(side='left')
+        ttk.Radiobutton(row,text=self.T('Blancas','White'),variable=turn,value='White').pack(side='left',padx=6)
+        ttk.Radiobutton(row,text=self.T('Negras','Black'),variable=turn,value='Black').pack(side='left')
+        fen_var=tk.StringVar(value=recognized or '')
+        ttk.Entry(frame,textvariable=fen_var).pack(fill='x',pady=4)
+        buttons=ttk.Frame(frame);buttons.pack(fill='x',pady=(4,0))
+        def load(start_analysis):
+            placement=fen_var.get().strip() or recognized
+            if not placement:
+                self.start_pdf_diagram_editor();return
+            try:
+                board=chess.Board(f'{placement} {"w" if turn.get()=="White" else "b"} - - 0 1')
+            except ValueError as err:
+                messagebox.showerror(self.T('Diagrama','Diagram'),str(err),parent=win);return
+            self._load_diagram_board(board)
+            win.destroy()
+            if start_analysis:self.w.after(150,lambda:self.analyze(engine_name=self.engine_view.get()))
+        ttk.Button(buttons,text=self.T('Cargar y analizar','Load and analyze'),command=lambda:load(True)).pack(side='left')
+        ttk.Button(buttons,text=self.T('Solo cargar','Load only'),command=lambda:load(False)).pack(side='left',padx=6)
+        ttk.Button(buttons,text=self.T('Editar posición','Edit position'),command=self.start_pdf_diagram_editor).pack(side='left')
+        ttk.Button(buttons,text=self.T('Cancelar','Cancel'),command=win.destroy).pack(side='right')
+        if recognized:self.status.set(self.T('Diagrama marcado. Revisa quién mueve y pulsa Cargar y analizar.','Diagram marked. Check who moves, then Load and analyze.'))
+        else:self.status.set(self.T('No se pudo leer el diagrama automáticamente. Coloca las piezas en el editor.','The diagram could not be read automatically. Place the pieces in the editor.'))
+    def _load_diagram_board(self,board):
+        self.stop();self.playing=False;self.play_busy=False;self.puzzle_active=False
+        self.stop_clock(settle=False);self.clock_selector.configure(state='readonly')
+        self.abort_quad_match();self.review_game=None;self.final_result=None;self.results={}
+        self.board=board;self.selected=None;self.editor_mode=False
+        self.side_to_move.set('White' if board.turn else 'Black')
+        self.fen.set(board.fen());self.refresh_move_list();self.draw()
+        self.show_tools_view()
+    def start_pdf_diagram_editor(self):
+        self.pdf_diagram_pending=True
+        self.start_position_editor()
+        self.status.set(self.T('Coloca las piezas del diagrama. Elige quién juega y pulsa Aplicar; el motor seleccionado analizará la posición.',
+                               'Place the diagram pieces, choose whose turn it is, then Apply; the selected engine will analyze the position.'))
+    def apply_pdf_line(self,text,notation):
+        if self.playing or self.engine_match_running or (self.quad and self.quad.get('active')):
+            raise ValueError(self.T('Termina la partida o el torneo antes de cargar una línea del libro.',
+                                    'Finish the game or tournament before loading a book line.'))
+        start=self.board.copy(stack=True)
+        moves,converted=parse_chess_book_line(start,text,notation,self.language.get())
+        if not moves:raise ValueError(self.T('No se encontraron jugadas legales.','No legal moves were found.'))
+        trial=start.copy(stack=True)
+        for move in moves:trial.push(move)
+        self.stop();self.playing=False;self.play_busy=False;self.puzzle_active=False
+        self.stop_clock(settle=False);self.clock_selector.configure(state='readonly')
+        self.abort_quad_match();self.review_game=None;self.final_result=None;self.results={}
+        self.board=trial;self.selected=None;self.side_to_move.set('White' if self.board.turn else 'Black')
+        self.fen.set(self.board.fen());self.refresh_move_list();self.draw()
+        self.status.set(self.T('Línea del libro cargada y convertida a notación algebraica.',
+                               'Book line loaded and converted to algebraic notation.'))
+        return converted
+    def save_pdf_line_pgn(self):
+        if not self.board.move_stack:
+            messagebox.showinfo(self.T('Libro PDF','PDF book'),self.T('Carga una línea en el tablero antes de guardarla.',
+                                                                       'Load a move line on the board before saving it.'))
+            return
+        path=filedialog.asksaveasfilename(defaultextension='.pgn',filetypes=[('PGN','*.pgn')],
+                                          title=self.T('Guardar línea del libro como PGN','Save book line as PGN'))
+        if not path:return
+        game=chess.pgn.Game.from_board(self.board)
+        game.headers['Event']='PDF chess book study'
+        if self.pdf_reader.path:game.headers['Source']=os.path.basename(self.pdf_reader.path)
+        try:
+            with open(path,'w',encoding='utf-8') as stream:print(game,file=stream,end='\n\n')
+            self.status.set(self.T('Línea guardada: ','Line saved: ')+path)
+        except OSError as err:messagebox.showerror('PGN',str(err))
     def make_editor_palette(self):
         ttk.Label(self.editor_palette,text='Blancas / White:').pack(side='left',padx=3)
         labels={'K':'♔ Rey','Q':'♕ Dama','R':'♖ Torre','B':'♗ Alfil','N':'♘ Caballo','P':'♙ Peón',
@@ -685,9 +813,18 @@ class App:
         ttk.Button(self.editor_palette,text='Limpiar / Clear',command=self.clear_editor_board).pack(side='left',padx=2)
         ttk.Button(self.editor_palette,text='Aplicar / Apply',command=self.apply_position_editor).pack(side='left',padx=2)
         ttk.Button(self.editor_palette,text='Cancelar / Cancel',command=self.cancel_position_editor).pack(side='left',padx=2)
+        ttk.Label(self.editor_palette,text='Juega / To move:').pack(side='left',padx=(8,2))
+        self.editor_turn_box=ttk.Combobox(self.editor_palette,textvariable=self.side_to_move,
+                                           values=('White','Black'),state='readonly',width=7)
+        self.editor_turn_box.pack(side='left',padx=2)
+        self.editor_turn_box.bind('<<ComboboxSelected>>',self.editor_turn_changed)
     def choose_editor_piece(self,symbol):
         self.editor_piece=None if symbol is None else chess.Piece.from_symbol(symbol)
         self.status.set(self.T('Pulsa una casilla para colocar la pieza elegida.','Click a square to place the selected piece.'))
+    def editor_turn_changed(self,_event=None):
+        if self.editor_mode:
+            self.board.turn=self.side_to_move.get()=='White'
+            self.draw()
     def start_position_editor(self):
         if not self.editor_mode:self.editor_saved_board=self.board.copy(stack=True)
         self.stop();self.playing=False;self.play_busy=False;self.puzzle_active=False;self.results={};self.review_game=None
@@ -702,21 +839,39 @@ class App:
         if not self.editor_mode:return
         if self.editor_saved_board is not None:self.board=self.editor_saved_board
         self.editor_mode=False;self.editor_saved_board=None;self.editor_palette.pack_forget();self.draw()
+        if self.pdf_diagram_pending:
+            self.pdf_diagram_pending=False
+            if self.pdf_diagram_window is not None:
+                try:self.pdf_diagram_window.destroy()
+                except tk.TclError:pass
     def apply_position_editor(self):
         if not self.editor_mode:return
         if len(self.board.pieces(chess.KING,chess.WHITE))!=1 or len(self.board.pieces(chess.KING,chess.BLACK))!=1:
             messagebox.showerror('Posición / Position',self.T('La posición necesita exactamente un rey blanco y un rey negro.','The position must have exactly one White king and one Black king.'));return
         self.board.turn=self.side_to_move.get()=='White';self.board.clear_stack();self.editor_mode=False;self.editor_saved_board=None
         self.editor_palette.pack_forget();self.results={};self.final_result=None;self.fen.set(self.board.fen())
+        diagram_analysis=self.pdf_diagram_pending
+        self.pdf_diagram_pending=False
         self.status.set(self.T('Posición lista. Puedes analizarla o guardarla como FEN/PGN.','Position ready. You can analyze it or save it as FEN/PGN.'));self.draw()
+        if diagram_analysis:
+            if self.pdf_diagram_window is not None:
+                try:self.pdf_diagram_window.destroy()
+                except tk.TclError:pass
+            self.analyze(selected_only=True,engine_name=self.engine_view.get())
     def show_engine_panel(self,event=None):
         for name,box in self.panels.items():box.pack_forget()
         self.panels[self.engine_view.get()].pack(fill='both',expand=True)
     def _update_video_analysis_title(self):
         frame=getattr(self,'video_analysis_frame',None)
-        if frame is None:return
         name=self.engine_view.get()
-        frame.configure(text=self.T('Análisis del motor — {name}','Engine analysis — {name}').format(name=name))
+        title=self.T('Análisis del motor — {name}','Engine analysis — {name}').format(name=name)
+        if frame is not None:frame.configure(text=title)
+        pdf_frame=getattr(self,'pdf_analysis_frame',None)
+        if pdf_frame is not None:pdf_frame.configure(text=title)
+    def selected_engine_analysis_output(self):
+        pdf_view=getattr(self,'pdf_view',None)
+        if pdf_view is not None and pdf_view.winfo_ismapped():return self.pdf_analysis
+        return self.video_analysis
     def refresh_move_list(self):
         if not hasattr(self,'move_text'):return
         board=self.board.root();rows=[]
@@ -964,6 +1119,7 @@ class App:
             for child in widget.winfo_children():visit(child)
         visit(self.w)
         if hasattr(self,'lichess_video'):self.lichess_video.set_language(self.language.get())
+        if hasattr(self,'pdf_reader'):self.pdf_reader.set_language()
         if hasattr(self,'study_button'):self.study_button.configure(text=self.T('Estudio','Study'))
         if hasattr(self,'resources_button'):self.resources_button.configure(text=self.T('Recursos','Resources'))
         if hasattr(self,'seconds_label'):self.seconds_label.configure(text=self.T('Segundos por motor:','Seconds / engine:'))
@@ -1578,13 +1734,13 @@ class App:
         names=(chosen_name,) if selected_only else self.ENGINE_NAMES
         if selected_only and chosen_name not in self.ENGINE_NAMES:
             message=self.T(f'El motor seleccionado «{chosen_name}» no está instalado.','The selected engine "{chosen_name}" is not installed.')
-            self.put(self.video_analysis,message);self.status.set(message);return
+            self.put(self.selected_engine_analysis_output(),message);self.status.set(message);return
         if selected_only and not self.paths.get(chosen_name):
             message=self.T(f'No hay un ejecutable configurado para {chosen_name}.','No executable is configured for {chosen_name}.')
-            self.put(self.video_analysis,message);self.status.set(message);return
+            self.put(self.selected_engine_analysis_output(),message);self.status.set(message);return
         self.status.set(self.T('Analizando con {name}…','Analyzing with {name}…').format(name=names[0]) if selected_only else self.T('Analizando…','Analyzing…'))
         if hasattr(self,'video_analysis'):
-            self.put(self.video_analysis,self.T('Analizando posición actual con {name}…','Analyzing current position with {name}…').format(name=names[0]) if selected_only else self.T('Analizando posición actual…','Analyzing current position…'))
+            self.put(self.selected_engine_analysis_output(),self.T('Analizando posición actual con {name}…','Analyzing current position with {name}…').format(name=names[0]) if selected_only else self.T('Analizando posición actual…','Analyzing current position…'))
         for name in names:
             self.put(self.panels[name],'Analyzing…' if self.paths[name] else 'Choose an executable to enable this engine.')
             if self.paths[name]:threading.Thread(target=self.worker,args=(name,self.paths[name],board.copy(),seconds,token),daemon=True).start()
@@ -2832,7 +2988,7 @@ class App:
                 if token!=self.epoch:continue
                 if error:
                     self.put(self.panels[name],f'Engine error: {error}')
-                    if name==self.engine_view.get():self.put(self.video_analysis,f'Engine error: {error}')
+                    if name==self.engine_view.get():self.put(self.selected_engine_analysis_output(),f'Engine error: {error}')
                     continue
                 lines=result if isinstance(result,list) else [result]
                 output=[]
@@ -2851,11 +3007,11 @@ class App:
                     message=self.T('El motor respondió, pero no entregó una variante de jugadas. Comprueba que sea un motor UCI compatible.',
                                    'The engine responded but returned no principal variation. Check that it is a compatible UCI engine.')
                     self.put(self.panels[name],message);self.results.pop(name,None);self.draw()
-                    if name==self.engine_view.get():self.put(self.video_analysis,message)
+                    if name==self.engine_view.get():self.put(self.selected_engine_analysis_output(),message)
                     continue
                 rendered='\n\n'.join(output)
                 self.put(self.panels[name],rendered)
-                if name==self.engine_view.get():self.put(self.video_analysis,rendered)
+                if name==self.engine_view.get():self.put(self.selected_engine_analysis_output(),rendered)
                 self.results[name]=(lines if name=='Stockfish' or isinstance(result,list) else lines[0]);self.explain(board);self.draw()
                 self.status.set(self.T('Análisis terminado','Analysis complete'))
         except queue.Empty:pass
@@ -2943,6 +3099,7 @@ class App:
         self.stop_live_broadcast()
         self.disconnect_dgt()
         if hasattr(self,'lichess_video'):self.lichess_video.destroy()
+        if hasattr(self,'pdf_reader'):self.pdf_reader.close_document()
         self.stop();self.w.destroy()
 
 def show_splash(root):

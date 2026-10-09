@@ -1,0 +1,75 @@
+ROBOCHESS — ACTUALIZACIONES Y MEJORAS
+Actualizado: 9 de octubre de 2026
+
+CAMBIOS RECIENTES
+
+• Se corrigió un cierre inesperado al iniciar el módulo Lichess Video Library.
+  El error era:
+  TypeError: LichessVideo.__init__() got an unexpected keyword argument
+  'close_callback'
+  Ocurría al usar un app.py nuevo junto con un lichess_video.py antiguo. La
+  aplicación enviaba la opción close_callback, pero el módulo anterior no la
+  aceptaba. Ahora los archivos de la aplicación y del módulo de video están
+  sincronizados. Instala juntos los archivos de una misma actualización; no
+  mezcles app.py y lichess_video.py de versiones distintas.
+
+• Se añadió el botón Cerrar videos a Lichess Video Library. Detiene y cierra la
+  vista temporal del video y regresa a la pantalla Estudio. El módulo está
+  limitado a la biblioteca de videos; desde esa vista se bloquean el inicio de
+  sesión y las páginas de partidas de Lichess. El tablero de análisis permanece
+  disponible junto al video.
+
+• Se añadió el reinicio automático del tablero DGT. Cuando todas las piezas
+  vuelven a sus casillas iniciales, RoboChess reinicia la partida, detiene el
+  motor y el reloj, y devuelve el turno a blancas. No reacciona a piezas
+  levantadas o colocadas de forma parcial. El reinicio no está disponible en
+  los modos editor, puzzles, revisión, Engine Match ni torneo Quad.
+
+• Se tradujo la ventana Partida > Personalidades para inglés y español. Sus
+  controles, títulos de campeón, países y descripciones de estilo están
+  disponibles en ambos idiomas para los 18 grandes maestros. Los nombres, Elo
+  y estadísticas de aperturas en notación algebraica se mantienen iguales.
+
+• Se añadió un lector integrado de libros PDF junto al tablero de análisis.
+  Permite abrir y mostrar páginas, ver el texto extraído/OCR, navegar y cambiar
+  el zoom. El usuario puede pegar una línea en notación descriptiva española o
+  SAN algebraica, validarla y seguirla en el tablero, elegir un motor para
+  analizar y exportar la línea a PGN. Las jugadas descriptivas se resuelven
+  según la posición legal actual; si una jugada es ambigua, el programa no la
+  adivina.
+
+• Ahora puedes marcar con el ratón un diagrama dentro de una página PDF. La
+  imagen recortada queda como referencia mientras colocas las piezas en el
+  editor del tablero. Al aplicar la posición verificada, RoboChess la carga en
+  el tablero de análisis y activa el motor seleccionado. La identificación de
+  las piezas todavía es manual en esta versión.
+
+FUNCIONES INCLUIDAS EN ESTA VERSIÓN
+
+• Comparación de análisis de motores, con líneas candidatas de Stockfish y la
+  variante principal de Crafty, barra de evaluación y flechas en el tablero.
+• Guardado del análisis en PGN o texto para revisarlo en otros programas.
+• Partidas contra motores configurados, relojes y controles de partida, además
+  de perfiles locales de progreso y consejos del tutor.
+• Conexión de un tablero DGT Smart Board por puerto serie para introducir las
+  jugadas físicamente.
+• Recursos y ejercicios de ajedrez incluidos en el proyecto: libros de
+  aperturas, estilos de piezas, tablas de finales y posiciones de entrenamiento.
+
+El lector PDF usa el paquete opcional PyMuPDF. Instálalo con
+`py -m pip install -r requirements-pdf.txt` desde `chess_comparator`, o con
+`py -m pip install -r chess_comparator/requirements-pdf.txt` desde la carpeta
+principal. El PDF original no se modifica: cada línea pegada se convierte y se
+valida en el tablero de análisis.
+
+NOTAS DE INSTALACIÓN
+
+• Conserva la estructura de carpetas al extraer una actualización.
+• Para corregir el error de Lichess, actualiza juntos los archivos app.py y
+  lichess_video.py correspondientes a la misma versión.
+• El tablero DGT requiere un controlador funcional y las dependencias
+  opcionales indicadas en requirements-dgt.txt. La biblioteca de videos
+  integrada puede requerir WebView2 Runtime en Windows.
+• La fuerza y el análisis dependen del motor seleccionado, su configuración y
+  el tiempo de búsqueda disponible. Los ajustes de Elo son aproximados y no
+  representan una clasificación oficial.

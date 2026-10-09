@@ -1,0 +1,39 @@
+RoboChess — lector PDF y conversión de jugadas
+
+ACTUALIZAR
+1. Cierra RoboChess.
+2. Extrae RoboChess-PDF-Book-Update.zip sobre la carpeta principal del proyecto.
+3. Acepta reemplazar archivos y conserva la carpeta chess_comparator.
+
+INSTALAR EL LECTOR PDF (una sola vez)
+Desde la carpeta principal del proyecto:
+    py -m pip install -r chess_comparator/requirements-pdf.txt
+
+O desde la carpeta chess_comparator:
+    py -m pip install -r requirements-pdf.txt
+
+USAR UN LIBRO
+1. Abre RoboChess y selecciona el idioma en Vista > Idioma.
+2. Abre Archivo > Abrir libro de ajedrez PDF (Ctrl+Shift+B).
+3. Usa Página para ver la imagen original y Texto OCR para copiar el texto
+   reconocible de esa página.
+4. Para transferir un diagrama, pulsa Marcar diagrama con el ratón y arrastra
+   alrededor del tablero de la página. En la ventana de referencia elige
+   Editar posición; coloca cada pieza en el tablero principal, elige quién
+   juega y pulsa Aplicar. La posición se carga y el motor seleccionado empieza
+   a analizarla automáticamente. Compara las piezas con la imagen antes de
+   aplicarla: en esta versión la colocación es manual.
+5. Abre Seguir jugadas. Pega una sola secuencia y elige Descriptiva (española)
+   o Algebraica SAN.
+6. Si la línea parte de un diagrama, pulsa Editar posición del diagrama y
+   coloca las piezas del diagrama en el tablero; aplica la posición y vuelve a
+   Seguir jugadas.
+7. Pulsa Convertir y seguir línea. RoboChess comprueba las jugadas legales,
+   muestra la línea en SAN y la reproduce en el tablero. Elige el motor en el
+   selector y pulsa Analizar tablero. Puedes guardar la línea como PGN.
+
+La conversión descriptiva depende de la posición inicial. Si la notación OCR
+contiene errores o una jugada resulta ambigua, RoboChess muestra el problema y
+no aplica una línea parcial. Revisa las jugadas contra la página original.
+El PDF fuente permanece sin cambios; este lector no reemplaza automáticamente
+la notación de las 204 páginas.
