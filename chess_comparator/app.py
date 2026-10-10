@@ -744,8 +744,14 @@ class App:
         ttk.Button(buttons,text=self.T('Editar posición','Edit position'),command=self.start_pdf_diagram_editor).pack(side='left')
         ttk.Button(buttons,text=self.T('Cancelar','Cancel'),command=win.destroy).pack(side='right')
         win.lift()
-        if recognized:self.status.set(self.T('Diagrama marcado. Pulsa Cargar y analizar.','Diagram marked. Press Load and analyze.'))
-        else:self.status.set(self.T('No se leyeron piezas. Cargar abre el editor para colocarlas.','No pieces were read. Load opens the editor so you can place them.'))
+        if recognized:
+            try:
+                self._load_diagram_board(chess.Board(f'{recognized} w - - 0 1'))
+                self.status.set(self.T('Posición del diagrama cargada. Elige quién mueve y pulsa Cargar y analizar.','Diagram position loaded. Choose who moves, then Load and analyze.'))
+            except ValueError:
+                self.status.set(self.T('Se leyó el diagrama, pero hay que revisarlo.','The diagram was read, but it needs a check.'))
+        else:
+            self.status.set(self.T('No se leyeron piezas. Marca solo el tablero, de borde a borde.','No pieces were read. Mark only the board, edge to edge.'))
     def load_marked_diagram(self,start_analysis):
         self.status.set(self.T('Cargando diagrama en el tablero…','Loading diagram onto the board…'))
         try:

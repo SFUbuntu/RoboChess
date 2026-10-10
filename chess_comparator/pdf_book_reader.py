@@ -395,6 +395,14 @@ class PDFBookReader(ttk.Frame):
             top, bottom = cy - size / 2, cy + size / 2
         left, right = max(0, left), min(self.photo.width(), right)
         top, bottom = max(0, top), min(self.photo.height(), bottom)
+        # A chess diagram is square. Keep the marked center and use the shorter side
+        # so the 8x8 grid lines up with the squares.
+        side = min(right - left, bottom - top)
+        cx, cy = (left + right) / 2, (top + bottom) / 2
+        left, right = cx - side / 2, cx + side / 2
+        top, bottom = cy - side / 2, cy + side / 2
+        left, right = max(0, left), min(self.photo.width(), right)
+        top, bottom = max(0, top), min(self.photo.height(), bottom)
         if right - left < 50 or bottom - top < 50:
             self.status_var.set('La selección es muy pequeña; vuelve a marcar el tablero.'
                                 if self.language_getter() != 'English'
