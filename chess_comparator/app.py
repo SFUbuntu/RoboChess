@@ -1245,8 +1245,10 @@ class App:
         self.stop();self.playing=False;self.play_busy=False;self.selected=None;self.results={};self.final_result=None
         self.board=board;self.puzzle_active='mate' if moves else 'tactic';self.puzzle_moves=moves;self.puzzle_index=0;self.puzzle_color=board.turn;self.puzzle_meta=None
         self.flipped=board.turn==chess.BLACK
+        self.side_to_move.set('White' if board.turn else 'Black')
         self.draw();self.show_tools_view();self.tabs.select(self.tabs.tabs()[-1])
-        message=self.T('Resuelve el ejercicio. Haz clic en origen y destino.','Solve the exercise. Click the origin and destination squares.')
+        turn=self.puzzle_turn_text(board.turn)
+        message=self.T(f'{turn}. Resuelve el ejercicio. Haz clic en origen y destino.',f'{turn}. Solve the exercise. Click the origin and destination squares.')
         if moves:self.status.set(message);self.put(self.resource_text,message+'\n'+credit+'\n'+source_label)
         else:
             name=self.first_configured_engine();engine_path=self.paths.get(name) if name else None
@@ -1303,11 +1305,13 @@ class App:
                     self.stop();self.playing=False;self.play_busy=False;self.results={};self.final_result=None;self.review_game=None
                     self.board=shown;self.selected=None;self.flipped=shown.turn==chess.BLACK
                     self.puzzle_moves=solution;self.puzzle_index=0;self.puzzle_color=shown.turn;self.puzzle_active='lichess';self.puzzle_meta=row
+                    self.side_to_move.set('White' if shown.turn else 'Black')
                     self.draw();self.show_tools_view();self.tabs.select(self.resources_tab)
+                    turn=self.puzzle_turn_text(shown.turn)
                     description=(f"Lichess puzzle {row.get('PuzzleId','')} · Elo {row.get('Rating','?')} · {row.get('NbPlays','?')} plays\n"
-                                 f"Themes: {row.get('Themes','')}\nGame: {row.get('GameUrl','')}\nFind the best continuation.")
+                                 f"{turn}\nThemes: {row.get('Themes','')}\nGame: {row.get('GameUrl','')}\nFind the best continuation.")
                     self.lichess_puzzle_status.set(description);self.put(self.resource_text,description)
-                    self.status.set(self.T('Resuelve la combinación. La jugada inicial del rival ya está en el tablero.','Solve the combination. The opponent’s setup move is already on the board.'))
+                    self.status.set(turn)
                 except Exception as err:
                     self.lichess_puzzle_status.set(self.T('No se pudo iniciar este puzzle: ','Could not start this puzzle: ')+str(err))
         except queue.Empty:pass
@@ -1483,9 +1487,17 @@ class App:
                 if row==7:c.create_text(x+s-10,y+s-10,text=chr(97+col),fill='#354139')
         self.draw_arrows()
         self.draw_evalbar()
+        if self.puzzle_active:
+            turn=self.puzzle_turn_text(self.board.turn)
+            c.create_rectangle(0,0,8*s,28,fill='#1f4b73',outline='')
+            c.create_text(4*s,14,text=turn,fill='white',font=('Arial',max(11,int(s*0.22)),'bold'))
         self.fen.set(self.board.fen())
         self.side_to_move.set('White' if self.board.turn else 'Black')
         self.refresh_move_list();self.refresh_opening_tree()
+    def puzzle_turn_text(self,turn):
+        if turn==chess.WHITE:
+            return self.T('Juegan las blancas','White to move')
+        return self.T('Juegan las negras','Black to move')
     def score_fraction(self,info):
         score=info.get('score') if info else None
         if not score:return None,None
@@ -2982,7 +2994,7 @@ class App:
                     self.challenge_best=best
                     if self.puzzle_active=='tactic':
                         self.puzzle_moves=[best];self.puzzle_index=0;self.puzzle_color=self.board.turn
-                    message=self.T('Encuentra la mejor jugada en esta búsqueda. Puedes pedir Pista.','Find the best move in this search. You may request a Hint.') if self.puzzle_active=='best' else self.T('Encuentra la mejor jugada del final.','Find the best move in this endgame.')
+                    message=self.puzzle_turn_text(self.board.turn)+'. '+(self.T('Encuentra la mejor jugada en esta búsqueda. Puedes pedir Pista.','Find the best move in this search. You may request a Hint.') if self.puzzle_active=='best' else self.T('Encuentra la mejor jugada del final.','Find the best move in this endgame.'))
                     self.status.set(message);self.put(self.resource_text,message)
                     self.show_tools_view();self.tabs.select(self.tabs.tabs()[-1])
         except queue.Empty:pass
