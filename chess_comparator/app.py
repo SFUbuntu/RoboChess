@@ -1491,7 +1491,7 @@ class App:
                 if row==7:c.create_text(x+s-10,y+s-10,text=chr(97+col),fill='#354139')
         self.draw_arrows()
         self.draw_evalbar()
-        if self.puzzle_active:
+        if self.puzzle_active or self.puzzle_banner:
             turn=self.puzzle_banner or self.puzzle_turn_text(self.board.turn)
             c.create_rectangle(0,0,8*s,28,fill='#1f4b73',outline='')
             c.create_text(4*s,14,text=f'{turn}   ·   Elo {self.puzzle_rating()}',fill='white',font=('Arial',max(11,int(s*0.2)),'bold'))
@@ -1534,6 +1534,22 @@ class App:
             self.puzzle_banner=self.T(f'Vuelve a intentarlo. Elo {rating} (-12)','Try again. Elo {rating} (-12)')
             self.status.set(self.puzzle_banner)
         self.draw()
+    def finish_puzzle(self,solved):
+        delta=16 if solved and self.puzzle_mistakes==0 else 8 if solved and not self.puzzle_failed else 4 if solved else -12
+        rating=self.adjust_puzzle_elo(delta)
+        self.puzzle_active=False
+        self.puzzle_banner=self.T(f'¡Pasaste! Elo {rating} ({delta:+d})',f'Passed! Elo {rating} ({delta:+d})') if solved else self.T(f'No pasó. Elo {rating} ({delta:+d})',f'Not solved. Elo {rating} ({delta:+d})')
+        self.status.set(self.puzzle_banner)
+        if self.profile and solved:
+            try:
+                if self.puzzle_meta:profile_store.record_lichess_puzzle(self.profile_data,self.profile,self.puzzle_meta.get('_SelectedTheme',''))
+                else:profile_store.record_exercise(self.profile_data,self.profile,'tactic')
+            except OSError:pass
+        self.put(self.resource_text,self.puzzle_banner+'\n'+self.T('Cargando el siguiente ejercicio…','Loading the next exercise…'))
+        self.draw()
+        messagebox.showinfo(self.T('Puzzle','Puzzle'),self.puzzle_banner,parent=self.w)
+        if self.puzzle_meta:self.w.after(400,self.next_lichess_puzzle)
+        else:self.w.after(400,self.new_puzzle)
     def score_fraction(self,info):
         score=info.get('score') if info else None
         if not score:return None,None
@@ -1692,41 +1708,24 @@ class App:
                     if move==self.challenge_best:
                         self.play_sound(self.sound_for_move(self.board,move))
                         self.board.push(move)
-                        delta=16 if self.puzzle_mistakes==0 else 8
-                        rating=self.adjust_puzzle_elo(delta)
-                        self.puzzle_banner=self.T(f'¡Correcto! Elo {rating} ({delta:+d})',f'Correct! Elo {rating} ({delta:+d})')
-                        self.status.set(self.puzzle_banner)
-                        if self.profile:
-                            try:profile_store.record_exercise(self.profile_data,self.profile,'best')
-                            except OSError as err:self.status.set(str(err))
-                        self.puzzle_active=False
+                        self.finish_puzzle(True)
                     else:
                         self.reject_puzzle_move(move)
                     self.draw();return
                 test=self.board.copy();test.push(move)
                 self.selected=None
                 expected=self.puzzle_moves[self.puzzle_index] if self.puzzle_index<len(self.puzzle_moves) else None
-                if move==expected:
+                same=expected is not None and move.from_square==expected.from_square and move.to_square==expected.to_square
+                trial=self.board.copy();trial.push(move)
+                if same or (not self.puzzle_moves and trial.is_checkmate()):
                     self.play_sound(self.sound_for_move(self.board,move))
-                    self.puzzle_banner=''
                     self.board.push(move);self.puzzle_index+=1
                     while self.puzzle_index<len(self.puzzle_moves) and self.board.turn!=self.puzzle_color:
                         reply=self.puzzle_moves[self.puzzle_index]
                         self.play_sound(self.sound_for_move(self.board,reply))
                         self.board.push(reply);self.puzzle_index+=1
-                    solved=self.puzzle_index>=len(self.puzzle_moves) or self.board.is_game_over()
-                    if solved:
-                        delta=16 if self.puzzle_mistakes==0 else 4 if self.puzzle_failed else 8
-                        rating=self.adjust_puzzle_elo(delta)
-                        self.puzzle_active=False
-                        self.puzzle_banner=self.T(f'¡Correcto! Elo {rating} ({delta:+d})',f'Correct! Elo {rating} ({delta:+d})')
-                        self.status.set(self.puzzle_banner)
-                        if self.profile:
-                            try:
-                                if self.puzzle_meta:profile_store.record_lichess_puzzle(self.profile_data,self.profile,self.puzzle_meta.get('_SelectedTheme',''))
-                                else:profile_store.record_exercise(self.profile_data,self.profile,'tactic')
-                            except OSError as err:self.status.set(str(err))
-                        self.put(self.resource_text,self.puzzle_banner+'\n'+self.T('Pulsa Siguiente ejercicio para practicar otro.','Press Next exercise to practice another.'))
+                    if not self.puzzle_moves or self.puzzle_index>=len(self.puzzle_moves) or self.board.is_game_over():
+                        self.finish_puzzle(True)
                     else:
                         self.puzzle_banner=self.puzzle_turn_text(self.board.turn)
                         self.status.set(self.T('¡Buena jugada! Sigue la combinación.','Good move! Continue the combination.'))
