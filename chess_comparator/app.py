@@ -449,6 +449,7 @@ class App:
         tournament.add_command(label=self.T('Revisar partidas del torneo…','Review tournament games…'),command=self.show_tournament_review)
         training=tk.Menu(bar,tearoff=0);bar.add_cascade(label=self.T('Entrenamiento','Training'),menu=training)
         training.add_command(label=self.T('Puzzles y ejercicios Lucas Chess…','Lucas Chess puzzles and exercises…'),command=self.training_dialog,accelerator='Ctrl+Shift+T')
+        training.add_command(label=self.T('Panel de puzzles…','Puzzle dashboard…'),command=self.puzzle_dashboard)
         training.add_command(label=self.T('Puzzle Rush…','Puzzle Rush…'),command=self.puzzle_rush_dialog,accelerator='Ctrl+Shift+R')
         training.add_command(label=self.T('Siguiente ejercicio Lucas Chess','Next Lucas Chess exercise'),command=self.new_puzzle)
         training.add_command(label=self.T('Encontrar la mejor jugada','Find the best move'),command=self.best_move_challenge)
@@ -785,6 +786,37 @@ class App:
                        f"{title}\nPuzzles solved: {session['solved']}\nPuzzle Rush rating: {session['rating']}\nHints used: {session['hints']}\n{record_line}")
         self.rush_session=None
         if reason!='quit' or new_record:messagebox.showinfo(self.T('Resultado de Puzzle Rush','Puzzle Rush result'),summary,parent=self.w)
+    def puzzle_dashboard(self):
+        win=tk.Toplevel(self.w);win.title(self.T('Panel de puzzles','Puzzle dashboard'));win.geometry('760x560');win.transient(self.w)
+        frame=ttk.Frame(win,padding=14);frame.pack(fill='both',expand=True)
+        ttk.Label(frame,text=self.T('Tu panel de puzzles','Your puzzle dashboard'),font=('Arial',16,'bold')).pack(anchor='w')
+        rating=self.puzzle_rating();solved=self.profile.get('tactics_solved',0) if self.profile else 0
+        rush=self.rush_stats
+        ttk.Label(frame,text=self.T(f'Elo de puzzles: {rating}    ·    Resueltos: {solved}    ·    Puzzle Rush: {rush["rating"]} (récord {rush["best_score"]})',
+                                    f'Puzzle rating: {rating}    ·    Solved: {solved}    ·    Puzzle Rush: {rush["rating"]} (record {rush["best_score"]})'),
+                  font=('Arial',12,'bold')).pack(anchor='w',pady=(8,4))
+        if rating<1300:plan=self.T('Empieza por mates en 1 y mates en 2. Acertar a la primera sube más Elo.','Start with mate in 1 and mate in 2. Solving on the first try raises more rating.')
+        elif rating<1600:plan=self.T('Ya tienes base. Mezcla táctica y finales, y repite los temas donde falles.','You have a base. Mix tactics and endgames, and repeat the themes you miss.')
+        else:plan=self.T('Nivel alto. Usa Puzzle Rush y las combinaciones largas para mantener el ritmo.','Strong level. Use Puzzle Rush and longer combinations to keep the pace.')
+        ttk.Label(frame,text=plan,wraplength=700).pack(anchor='w',pady=(0,8))
+        themes=self.profile.get('puzzles_by_theme',{}) if self.profile else {}
+        lines=[self.T('Temas practicados','Themes practiced')]
+        if themes:
+            for theme,count in sorted(themes.items(),key=lambda item:item[1],reverse=True)[:8]:
+                lines.append(f'  {theme}: {count}')
+        else:
+            lines.append(self.T('  Aún no hay temas registrados. Resuelve un puzzle con un perfil activo.','  No themes recorded yet. Solve a puzzle with an active profile.'))
+        lines.append('')
+        lines.append(self.T('Colecciones disponibles','Available collections'))
+        for key,files in list(self.rush_categories.items())[:12]:
+            label=self.T(*puzzle_rush.CATEGORIES.get(key,('Todos','All')))
+            lines.append(f'  {label}: {len(files)}')
+        box=tk.Text(frame,height=16,wrap='word');box.pack(fill='both',expand=True,pady=6)
+        box.insert('1.0','\n'.join(lines));box.configure(state='disabled')
+        buttons=ttk.Frame(frame);buttons.pack(fill='x')
+        ttk.Button(buttons,text=self.T('Practicar Lucas','Practice Lucas'),command=lambda:(win.destroy(),self.training_dialog())).pack(side='left')
+        ttk.Button(buttons,text=self.T('Puzzle Rush','Puzzle Rush'),command=lambda:(win.destroy(),self.puzzle_rush_dialog())).pack(side='left',padx=6)
+        ttk.Button(buttons,text=self.T('Cerrar','Close'),command=win.destroy).pack(side='right')
     @staticmethod
     def _uci_command(path):
         lower=path.lower()
@@ -1391,6 +1423,7 @@ class App:
         except ValueError:source_label=path.name
         self.stop();self.playing=False;self.play_busy=False;self.selected=None;self.results={};self.final_result=None
         self.board=board;self.puzzle_active='mate' if moves else 'tactic';self.puzzle_moves=moves;self.puzzle_index=0;self.puzzle_color=board.turn;self.puzzle_meta=None
+        self.puzzle_theme=source_label.split('/')[0] if source_label else 'Lucas'
         self.puzzle_mistakes=0;self.puzzle_failed=False;self.puzzle_banner=''
         self.flipped=board.turn==chess.BLACK
         self.side_to_move.set('White' if board.turn else 'Black')
@@ -1689,7 +1722,7 @@ class App:
         if self.profile and solved:
             try:
                 if self.puzzle_meta:profile_store.record_lichess_puzzle(self.profile_data,self.profile,self.puzzle_meta.get('_SelectedTheme',''))
-                else:profile_store.record_exercise(self.profile_data,self.profile,'tactic')
+                else:profile_store.record_lichess_puzzle(self.profile_data,self.profile,getattr(self,'puzzle_theme','Lucas'))
             except OSError:pass
         self.put(self.resource_text,self.puzzle_banner+'\n'+self.T('Cargando el siguiente ejercicio…','Loading the next exercise…'))
         self.draw()
