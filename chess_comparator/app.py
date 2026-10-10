@@ -180,6 +180,7 @@ class App:
         self.book_choice=tk.StringVar(value=next((k for k,v in self.book_paths.items() if v==self.book_path),'GMopenings.bin'))
         self.training_sets=training_resources.training_sets();self.training_choice=tk.StringVar(value='All Lucas Chess exercises')
         self.external_training=None;self.puzzle_moves=[];self.puzzle_index=0;self.puzzle_color=None
+        self.puzzle_mistakes=0;self.puzzle_failed=False;self.puzzle_banner='';self.puzzle_undo_token=0
         self.puzzle_category=tk.StringVar(value=next(iter(lichess_puzzles.PUZZLE_CATEGORIES)))
         self.puzzle_theme_choice=tk.StringVar(value=lichess_puzzles.PUZZLE_CATEGORIES[self.puzzle_category.get()][0][0])
         self.lichess_puzzle_file=tk.StringVar(value='');self.lichess_puzzle_events=queue.Queue();self.lichess_puzzle_token=0;self.puzzle_meta=None
@@ -1244,6 +1245,7 @@ class App:
         except ValueError:source_label=path.name
         self.stop();self.playing=False;self.play_busy=False;self.selected=None;self.results={};self.final_result=None
         self.board=board;self.puzzle_active='mate' if moves else 'tactic';self.puzzle_moves=moves;self.puzzle_index=0;self.puzzle_color=board.turn;self.puzzle_meta=None
+        self.puzzle_mistakes=0;self.puzzle_failed=False;self.puzzle_banner=''
         self.flipped=board.turn==chess.BLACK
         self.side_to_move.set('White' if board.turn else 'Black')
         self.draw();self.show_tools_view();self.tabs.select(self.tabs.tabs()[-1])
@@ -1305,6 +1307,7 @@ class App:
                     self.stop();self.playing=False;self.play_busy=False;self.results={};self.final_result=None;self.review_game=None
                     self.board=shown;self.selected=None;self.flipped=shown.turn==chess.BLACK
                     self.puzzle_moves=solution;self.puzzle_index=0;self.puzzle_color=shown.turn;self.puzzle_active='lichess';self.puzzle_meta=row
+                    self.puzzle_mistakes=0;self.puzzle_failed=False;self.puzzle_banner=''
                     self.side_to_move.set('White' if shown.turn else 'Black')
                     self.draw();self.show_tools_view();self.tabs.select(self.resources_tab)
                     turn=self.puzzle_turn_text(shown.turn)
@@ -1320,6 +1323,7 @@ class App:
         if not path:
             self.put(self.resource_text,self.T('Selecciona un motor primero.','Select an engine first.'));return
         self.stop();self.playing=False;self.play_busy=False;self.selected=None;self.puzzle_active='best';self.challenge_best=None;self.puzzle_meta=None
+        self.puzzle_mistakes=0;self.puzzle_failed=False;self.puzzle_banner=''
         token=self.epoch;board=self.board.copy()
         self.put(self.resource_text,self.T('Preparando el ejercicio…','Preparing the challenge…'))
         threading.Thread(target=self.challenge_worker,args=(token,name,path,board),daemon=True).start()
@@ -1488,9 +1492,9 @@ class App:
         self.draw_arrows()
         self.draw_evalbar()
         if self.puzzle_active:
-            turn=self.puzzle_turn_text(self.board.turn)
+            turn=self.puzzle_banner or self.puzzle_turn_text(self.board.turn)
             c.create_rectangle(0,0,8*s,28,fill='#1f4b73',outline='')
-            c.create_text(4*s,14,text=turn,fill='white',font=('Arial',max(11,int(s*0.22)),'bold'))
+            c.create_text(4*s,14,text=f'{turn}   ·   Elo {self.puzzle_rating()}',fill='white',font=('Arial',max(11,int(s*0.2)),'bold'))
         self.fen.set(self.board.fen())
         self.side_to_move.set('White' if self.board.turn else 'Black')
         self.refresh_move_list();self.refresh_opening_tree()
@@ -1498,6 +1502,38 @@ class App:
         if turn==chess.WHITE:
             return self.T('Juegan las blancas','White to move')
         return self.T('Juegan las negras','Black to move')
+    def puzzle_rating(self):
+        if self.profile:
+            return int(self.profile.get('puzzle_elo') or self.profile.get('reported_elo') or 1200)
+        return int(getattr(self,'guest_puzzle_elo',1200))
+    def adjust_puzzle_elo(self,delta):
+        rating=max(100,self.puzzle_rating()+delta)
+        if self.profile:
+            self.profile['puzzle_elo']=rating
+            try:profile_store.save(self.profile_data)
+            except OSError:pass
+        else:
+            self.guest_puzzle_elo=rating
+        return rating
+    def reject_puzzle_move(self,move):
+        self.play_sound('illegal.wav')
+        self.puzzle_mistakes+=1
+        self.board.push(move)
+        self.puzzle_banner=self.T('Vuelve a intentarlo','Try again')
+        self.status.set(self.puzzle_banner)
+        self.put(self.resource_text,self.puzzle_banner)
+        self.puzzle_undo_token+=1
+        token=self.puzzle_undo_token
+        self.w.after(700,lambda:self.undo_rejected_puzzle_move(token))
+    def undo_rejected_puzzle_move(self,token):
+        if token!=self.puzzle_undo_token or not self.puzzle_active:return
+        if self.board.move_stack:self.board.pop()
+        if self.puzzle_mistakes>=3 and not self.puzzle_failed:
+            self.puzzle_failed=True
+            rating=self.adjust_puzzle_elo(-12)
+            self.puzzle_banner=self.T(f'Vuelve a intentarlo. Elo {rating} (-12)','Try again. Elo {rating} (-12)')
+            self.status.set(self.puzzle_banner)
+        self.draw()
     def score_fraction(self,info):
         score=info.get('score') if info else None
         if not score:return None,None
@@ -1634,7 +1670,7 @@ class App:
             self.board.remove_piece_at(sq)
             if self.editor_piece:self.board.set_piece_at(sq,self.editor_piece)
             self.draw();return
-        if self.playing and (self.play_busy or self.board.turn!=self.human_color):return
+        if self.playing and not self.puzzle_active and (self.play_busy or self.board.turn!=self.human_color):return
         sq=chess.square(7-col,row) if self.flipped else chess.square(col,7-row)
         if self.selected is None:self.selected=sq;self.draw();return
         move=chess.Move(self.selected,sq)
@@ -1655,18 +1691,24 @@ class App:
                         self.status.set(self.T('Espera a que el motor prepare el ejercicio.','Wait while the engine prepares the challenge.'));return
                     if move==self.challenge_best:
                         self.play_sound(self.sound_for_move(self.board,move))
-                        self.board.push(move);self.status.set(self.T('¡Es la mejor jugada según esta búsqueda!','Best move in this engine search!'))
+                        self.board.push(move)
+                        delta=16 if self.puzzle_mistakes==0 else 8
+                        rating=self.adjust_puzzle_elo(delta)
+                        self.puzzle_banner=self.T(f'¡Correcto! Elo {rating} ({delta:+d})',f'Correct! Elo {rating} ({delta:+d})')
+                        self.status.set(self.puzzle_banner)
                         if self.profile:
                             try:profile_store.record_exercise(self.profile_data,self.profile,'best')
                             except OSError as err:self.status.set(str(err))
                         self.puzzle_active=False
-                    else:self.status.set(self.T('Intenta otra jugada. Puedes pedir una pista al tutor.','Try another move. You may ask the tutor for a hint.'))
+                    else:
+                        self.reject_puzzle_move(move)
                     self.draw();return
                 test=self.board.copy();test.push(move)
                 self.selected=None
                 expected=self.puzzle_moves[self.puzzle_index] if self.puzzle_index<len(self.puzzle_moves) else None
                 if move==expected:
                     self.play_sound(self.sound_for_move(self.board,move))
+                    self.puzzle_banner=''
                     self.board.push(move);self.puzzle_index+=1
                     while self.puzzle_index<len(self.puzzle_moves) and self.board.turn!=self.puzzle_color:
                         reply=self.puzzle_moves[self.puzzle_index]
@@ -1674,15 +1716,22 @@ class App:
                         self.board.push(reply);self.puzzle_index+=1
                     solved=self.puzzle_index>=len(self.puzzle_moves) or self.board.is_game_over()
                     if solved:
-                        self.puzzle_active=False;self.status.set(self.T('¡Correcto! Completaste el ejercicio.','Correct! You solved the exercise.'))
+                        delta=16 if self.puzzle_mistakes==0 else 4 if self.puzzle_failed else 8
+                        rating=self.adjust_puzzle_elo(delta)
+                        self.puzzle_active=False
+                        self.puzzle_banner=self.T(f'¡Correcto! Elo {rating} ({delta:+d})',f'Correct! Elo {rating} ({delta:+d})')
+                        self.status.set(self.puzzle_banner)
                         if self.profile:
                             try:
                                 if self.puzzle_meta:profile_store.record_lichess_puzzle(self.profile_data,self.profile,self.puzzle_meta.get('_SelectedTheme',''))
                                 else:profile_store.record_exercise(self.profile_data,self.profile,'tactic')
                             except OSError as err:self.status.set(str(err))
-                        self.put(self.resource_text,self.T('¡Bien hecho! Pulsa Siguiente ejercicio para practicar otro.','Well done! Press Next exercise to practice another.'))
-                    else:self.status.set(self.T('¡Buena jugada! Sigue la combinación.','Good move! Continue the combination.'))
-                else:self.status.set(self.T('Prueba otra jugada. Puedes pedir Pista.','Try another move. You can ask for a Hint.'))
+                        self.put(self.resource_text,self.puzzle_banner+'\n'+self.T('Pulsa Siguiente ejercicio para practicar otro.','Press Next exercise to practice another.'))
+                    else:
+                        self.puzzle_banner=self.puzzle_turn_text(self.board.turn)
+                        self.status.set(self.T('¡Buena jugada! Sigue la combinación.','Good move! Continue the combination.'))
+                else:
+                    self.reject_puzzle_move(move)
                 self.draw();return
             before=self.board.copy();was_human=self.playing and self.board.turn==self.human_color;self.review_game=None
             if was_human and not self.complete_clock_move(self.board.turn):return
