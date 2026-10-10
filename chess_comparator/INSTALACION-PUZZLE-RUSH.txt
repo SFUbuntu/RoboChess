@@ -1,0 +1,25 @@
+RoboChess — actualización Puzzle Rush
+
+ARCHIVOS
+Copia los tres archivos de la carpeta chess_comparator de este paquete a la carpeta chess_comparator de tu proyecto RoboChess, reemplazando app.py y agregando los dos módulos nuevos:
+- app.py
+- puzzle_rush.py
+- lichess_puzzles.py
+
+Cierra RoboChess antes de copiar los archivos. Mantén puzzle_rush.py y lichess_puzzles.py junto a app.py.
+
+USO
+1. Abre Entrenamiento > 🧩 Puzzle Rush (o usa Ctrl+Shift+R).
+2. Elige Todos los puzzles instalados o una temática: mate en 1, mate en 2, mate en 3 y siguientes, clavadas, ataques dobles, finales, etc.
+3. Pulsa Iniciar. Tienes cinco minutos y tres intentos por posición. El panel indica el reloj, el marcador, el Elo local, el tema, el bando al turno y los intentos restantes.
+4. Pulsa Pista para resaltar la pieza que debe moverse. Cada pista resta 10 puntos de Elo.
+5. Usa Terminar y volver (o cierra el panel) para salir de Puzzle Rush y volver al tablero principal.
+
+PUNTUACIÓN
+- El Elo local empieza en 1200.
+- Resolver a la primera suma 10 puntos; resolver después de fallar una vez o más suma 5.
+- Una pista resta 10 puntos y desactiva la bonificación por resolver ese puzzle.
+- Agotar los tres intentos resta 15 puntos y muestra el resultado final.
+- El récord cuenta los puzzles resueltos en una sesión de cinco minutos. Al superarlo aparece un mensaje de felicitación.
+
+El Elo de Puzzle Rush es una puntuación de entrenamiento de RoboChess, no una clasificación oficial FIDE ni de Lichess. El Elo y el récord se guardan localmente en la carpeta NibblerDualAnalysis del usuario. Los ejercicios se leen de los archivos FNS instalados en assets/lucas_resources; las posiciones que no tengan una línea de solución pueden usar el motor configurado para preparar una jugada de referencia.

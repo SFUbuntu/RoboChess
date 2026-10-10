@@ -58,6 +58,7 @@ try:
     import training_resources
     import quad_tournament
     import lichess_puzzles
+    import puzzle_rush
     import personalities
     from lichess_video import LichessVideo
     from pdf_book_reader import PDFBookReader
@@ -183,6 +184,10 @@ class App:
         self.puzzle_mistakes=0;self.puzzle_failed=False;self.puzzle_banner='';self.puzzle_undo_token=0
         self.puzzle_category=tk.StringVar(value=next(iter(lichess_puzzles.PUZZLE_CATEGORIES)))
         self.puzzle_theme_choice=tk.StringVar(value=lichess_puzzles.PUZZLE_CATEGORIES[self.puzzle_category.get()][0][0])
+        self.rush_categories=puzzle_rush.available_categories(self.training_sets)
+        self.rush_category=tk.StringVar(value='all')
+        self.rush_stats=puzzle_rush.load_stats();self.rush_session=None;self.rush_window=None
+        self.rush_text=tk.StringVar(value='');self.rush_seen=set()
         self.lichess_puzzle_file=tk.StringVar(value='');self.lichess_puzzle_events=queue.Queue();self.lichess_puzzle_token=0;self.puzzle_meta=None
         self.gaviota_path=training_resources.GAVIOTA;self.puzzle_active=False;self.challenge_best=None;self.challenge_events=queue.Queue()
         self.play_engine=tk.StringVar(value='Stockfish');self.play_color=tk.StringVar(value='White')
@@ -444,6 +449,7 @@ class App:
         tournament.add_command(label=self.T('Revisar partidas del torneo…','Review tournament games…'),command=self.show_tournament_review)
         training=tk.Menu(bar,tearoff=0);bar.add_cascade(label=self.T('Entrenamiento','Training'),menu=training)
         training.add_command(label=self.T('Puzzles y ejercicios Lucas Chess…','Lucas Chess puzzles and exercises…'),command=self.training_dialog,accelerator='Ctrl+Shift+T')
+        training.add_command(label=self.T('Puzzle Rush…','Puzzle Rush…'),command=self.puzzle_rush_dialog,accelerator='Ctrl+Shift+R')
         training.add_command(label=self.T('Siguiente ejercicio Lucas Chess','Next Lucas Chess exercise'),command=self.new_puzzle)
         training.add_command(label=self.T('Encontrar la mejor jugada','Find the best move'),command=self.best_move_challenge)
         profilemenu=tk.Menu(bar,tearoff=0);bar.add_cascade(label=self.T('Perfil','Profile'),menu=profilemenu)
@@ -464,6 +470,7 @@ class App:
         bindings=(
             ('<Control-o>',self.load_pgn),('<Control-s>',self.save_pgn),
             ('<Control-Shift-p>',self.profile_dialog),('<Control-Shift-t>',self.training_dialog),
+            ('<Control-Shift-r>',self.puzzle_rush_dialog),
             ('<Control-Shift-l>',self.show_lichess_video),
             ('<Control-Shift-b>',self.open_pdf_book),
             ('<Control-z>',self.undo),('<Control-r>',self.reset),('<Control-f>',self.flip_board),
@@ -478,6 +485,7 @@ class App:
             ('Guardar análisis PGN','Save analysis PGN','Ctrl+S'),
             ('Perfiles','Profiles','Ctrl+Shift+P'),
             ('Puzzles y ejercicios','Puzzles and exercises','Ctrl+Shift+T'),
+            ('Puzzle Rush','Puzzle Rush','Ctrl+Shift+R'),
             ('Biblioteca de videos de Lichess','Lichess Video Library','Ctrl+Shift+L'),
             ('Abrir libro de ajedrez PDF','Open chess book PDF','Ctrl+Shift+B'),
             ('Deshacer jugada','Undo move','Ctrl+Z'),('Reiniciar tablero','Reset board','Ctrl+R'),
@@ -639,6 +647,144 @@ class App:
             f'Se detectaron {len(self.training_sets)-1} colecciones locales.\nElige Tactics o Trainings, pulsa Siguiente ejercicio y resuelve en el tablero.\nLos puzzles de Lichess necesitan el CSV descargado de database.lichess.org.',
             f'{len(self.training_sets)-1} local collections were found.\nPick Tactics or Trainings, press Next exercise and solve on the board.\nLichess puzzles need the CSV from database.lichess.org.'))
         hint.configure(state='disabled')
+    def puzzle_rush_dialog(self):
+        win=tk.Toplevel(self.w);win.title(self.T('Puzzle Rush','Puzzle Rush'));win.geometry('720x420');win.transient(self.w)
+        frame=ttk.Frame(win,padding=12);frame.pack(fill='both',expand=True)
+        ttk.Label(frame,text=self.T('Puzzle Rush · 5 minutos','Puzzle Rush · 5 minutes'),font=('Arial',16,'bold')).pack(anchor='w')
+        ttk.Label(frame,text=self.T('Resuelve tantos puzzles como puedas. Cada ejercicio permite tres intentos; una pista resta Elo.','Solve as many puzzles as you can. Each puzzle allows three tries; using a hint lowers your rating.'),wraplength=680).pack(anchor='w',pady=(4,8))
+        category_row=ttk.Frame(frame);category_row.pack(fill='x',pady=3)
+        ttk.Label(category_row,text=self.T('Tema','Theme'),width=16).pack(side='left')
+        category_labels={key:self.T(*puzzle_rush.CATEGORIES[key]) for key in self.rush_categories}
+        current_label=category_labels.get(self.rush_category.get(),category_labels.get('all',''))
+        category_var=tk.StringVar(value=current_label)
+        category_box=ttk.Combobox(category_row,textvariable=category_var,values=tuple(category_labels.values()),state='readonly',width=45)
+        category_box.pack(side='left',fill='x',expand=True)
+        count_labels={category_labels[k]:len(v) for k,v in self.rush_categories.items()}
+        count_var=tk.StringVar(value=self.T(f"{count_labels.get(current_label,0)} colecciones",f"{count_labels.get(current_label,0)} collections"))
+        ttk.Label(category_row,textvariable=count_var).pack(side='left',padx=8)
+        def update_rush_count(event=None):
+            count=count_labels.get(category_var.get(),0)
+            count_var.set(self.T(f'{count} colecciones',f'{count} collections'))
+        category_box.bind('<<ComboboxSelected>>',update_rush_count)
+        ttk.Label(frame,text=self.T(f"Elo Puzzle Rush: {self.rush_stats['rating']}   ·   Récord: {self.rush_stats['best_score']} puzzles",
+                                    f"Puzzle Rush rating: {self.rush_stats['rating']}   ·   Record: {self.rush_stats['best_score']} puzzles"),font=('Arial',11,'bold')).pack(anchor='w',pady=4)
+        def start_rush():
+            label=category_var.get()
+            selected=next((key for key,value in category_labels.items() if value==label),'all')
+            self.rush_category.set(selected)
+            self.start_puzzle_rush(selected)
+            if self.rush_session:win.destroy()
+        ttk.Button(frame,text=self.T('Iniciar Puzzle Rush','Start Puzzle Rush'),command=start_rush).pack(anchor='w',pady=(3,9))
+    def start_puzzle_rush(self,category='all'):
+        paths=self.rush_categories.get(category) or self.rush_categories.get('all',[])
+        if not paths:
+            messagebox.showinfo(self.T('Puzzle Rush','Puzzle Rush'),self.T('No hay puzzles instalados en este tema.','No installed puzzles are available for this theme.'),parent=self.w);return
+        self.stop();self.playing=False;self.play_busy=False;self.selected=None;self.results={};self.final_result=None
+        self.stop_clock(settle=False);self.review_game=None;self.abort_quad_match()
+        self.rush_seen=set()
+        self.rush_session={'category':category,'paths':paths,'started':time.monotonic(),'ends':time.monotonic()+300,
+                           'solved':0,'attempts_left':3,'wrong':0,'hints':0,'hint_used':False,'rating':self.rush_stats['rating'],
+                           'finished':False,'last_attempt':0,'waiting_engine':False,'engine_failures':0}
+        self.puzzle_active='rush';self.puzzle_meta=None;self.puzzle_banner=''
+        if not self._next_rush_puzzle():
+            self.finish_puzzle_rush('empty');return
+        if self.rush_window is not None:
+            try:self.rush_window.destroy()
+            except tk.TclError:pass
+        win=tk.Toplevel(self.w);self.rush_window=win;win.title(self.T('Puzzle Rush','Puzzle Rush'));win.geometry('460x190');win.transient(self.w)
+        ttk.Label(win,textvariable=self.rush_text,font=('Arial',12,'bold'),justify='left').pack(fill='x',padx=12,pady=10)
+        row=ttk.Frame(win);row.pack(fill='x',padx=10,pady=5)
+        ttk.Button(row,text=self.T('Pista (−10 Elo)','Hint (−10 rating)'),command=self.puzzle_rush_hint).pack(side='left',padx=3)
+        ttk.Button(row,text=self.T('Terminar y volver','Finish and return'),command=lambda:self.finish_puzzle_rush('quit')).pack(side='right',padx=3)
+        win.protocol('WM_DELETE_WINDOW',lambda:self.finish_puzzle_rush('quit'))
+        self.show_study_view()
+        self.status.set(self.T('Puzzle Rush: resuelve el problema. Juegan las '+('blancas.' if self.board.turn else 'negras.'),
+                               'Puzzle Rush: solve the position. '+('White' if self.board.turn else 'Black')+' to move.'))
+        self.update_puzzle_rush_display()
+    def _next_rush_puzzle(self):
+        session=self.rush_session
+        if not session:return False
+        choices=list(session['paths']);random.shuffle(choices)
+        for _ in range(60):
+            try:board,solution,credit,path=training_resources.random_exercise(choices)
+            except Exception:continue
+            moves=training_resources.solution_moves(board,solution)
+            key=(board.fen(),tuple(move.uci() for move in moves))
+            if not moves or key in self.rush_seen:continue
+            self.rush_seen.add(key)
+            self.board=board;self.puzzle_moves=moves;self.puzzle_index=0;self.puzzle_color=board.turn
+            self.flipped=board.turn==chess.BLACK;self.selected=None;session['attempts_left']=3;session['hint_used']=False
+            session['last_attempt']=0;session['credit']=credit;session['source']=path.name;session['expected']=moves[0]
+            self.side_to_move.set('White' if board.turn else 'Black');self.draw()
+            return True
+        engine_name=self.first_configured_engine();engine_path=self.paths.get(engine_name) if engine_name else None
+        if engine_path:
+            for _ in range(8):
+                try:board,solution,credit,path=training_resources.random_exercise(choices)
+                except Exception:continue
+                if training_resources.solution_moves(board,solution):continue
+                key=(board.fen(),())
+                if key in self.rush_seen:continue
+                self.rush_seen.add(key);self.board=board;self.puzzle_moves=[];self.puzzle_index=0
+                self.puzzle_color=board.turn;self.flipped=board.turn==chess.BLACK;self.selected=None
+                session['attempts_left']=3;session['hint_used']=False;session['waiting_engine']=True
+                session['source']=path.name;session['credit']=credit
+                self.side_to_move.set('White' if board.turn else 'Black');self.draw()
+                self.status.set(self.T('Preparando una jugada de referencia con el motor…','Preparing a reference move with the engine…'))
+                self.update_puzzle_rush_display()
+                token=self.epoch
+                threading.Thread(target=self.challenge_worker,args=(token,engine_name,engine_path,board.copy()),daemon=True).start()
+                return True
+        return False
+    def update_puzzle_rush_display(self):
+        session=self.rush_session
+        if not session or session.get('finished'):return
+        seconds=max(0,int(session['ends']-time.monotonic()+0.999))
+        category_label=self.T(*puzzle_rush.CATEGORIES.get(session['category'],puzzle_rush.CATEGORIES['all']))
+        turn=self.T('Blancas','White') if self.board.turn==chess.WHITE else self.T('Negras','Black')
+        self.rush_text.set(self.T(f"⏱ {seconds//60}:{seconds%60:02d}   ·   Puzzles: {session['solved']}   ·   Elo: {session['rating']}\nTema: {category_label}   ·   Juegan: {turn}   ·   Intentos: {session['attempts_left']}/3",
+                                  f"⏱ {seconds//60}:{seconds%60:02d}   ·   Puzzles: {session['solved']}   ·   Rating: {session['rating']}\nTheme: {category_label}   ·   To move: {turn}   ·   Tries: {session['attempts_left']}/3"))
+        if seconds<=0:self.finish_puzzle_rush('time')
+    def _save_puzzle_rush_stats(self):
+        try:puzzle_rush.save_stats(self.rush_stats)
+        except OSError as err:self.status.set(self.T('No se pudo guardar el progreso de Puzzle Rush: ','Could not save Puzzle Rush progress: ')+str(err))
+    def puzzle_rush_hint(self):
+        session=self.rush_session
+        if not session or session.get('finished'):return
+        if session.get('waiting_engine'):
+            self.status.set(self.T('El motor está preparando la jugada.','The engine is preparing the move.'));return
+        if not self.puzzle_moves:return
+        session['rating']=max(100,session['rating']-10);session['hints']+=1;session['hint_used']=True
+        self.rush_stats['rating']=session['rating'];self._save_puzzle_rush_stats()
+        move=self.puzzle_moves[self.puzzle_index]
+        self.selected=move.from_square;self.draw()
+        square=chess.square_name(move.from_square)
+        self.status.set(self.T(f'Pista: considera mover la pieza de {square}. Se restaron 10 puntos de Elo.',
+                               f'Hint: consider moving the piece on {square}. 10 rating points were deducted.'))
+        self.update_puzzle_rush_display()
+    def finish_puzzle_rush(self,reason='quit'):
+        session=self.rush_session
+        if not session or session.get('finished'):return
+        session['finished']=True;session['rating']=max(100,session['rating'])
+        self.puzzle_active=False;self.selected=None;self.rush_stats['rating']=session['rating'];self.rush_stats['runs']+=1
+        new_record=session['solved']>self.rush_stats['best_score']
+        if new_record:self.rush_stats['best_score']=session['solved']
+        self._save_puzzle_rush_stats()
+        if self.rush_window is not None:
+            try:self.rush_window.destroy()
+            except tk.TclError:pass
+            self.rush_window=None
+        self.draw();self.show_study_view()
+        if reason=='lost':title=self.T('Lo siento, inténtalo otra vez','Sorry, try again')
+        elif reason=='time':title=self.T('¡Tiempo!','Time!')
+        elif reason=='empty':title=self.T('Puzzle Rush','Puzzle Rush')
+        elif reason=='engine':title=self.T('El motor no pudo preparar más posiciones.','The engine could not prepare more positions.')
+        else:title=self.T('Puzzle Rush terminado','Puzzle Rush finished')
+        record_line=self.T('¡Felicitaciones, hiciste un récord nuevo!','Congratulations, you set a new record!') if new_record else self.T(f"Récord personal: {self.rush_stats['best_score']} puzzles.",f"Personal record: {self.rush_stats['best_score']} puzzles.")
+        summary=self.T(f"{title}\nPuzzles resueltos: {session['solved']}\nElo Puzzle Rush: {session['rating']}\nPistas usadas: {session['hints']}\n{record_line}",
+                       f"{title}\nPuzzles solved: {session['solved']}\nPuzzle Rush rating: {session['rating']}\nHints used: {session['hints']}\n{record_line}")
+        self.rush_session=None
+        if reason!='quit' or new_record:messagebox.showinfo(self.T('Resultado de Puzzle Rush','Puzzle Rush result'),summary,parent=self.w)
     @staticmethod
     def _uci_command(path):
         lower=path.lower()
@@ -1702,6 +1848,43 @@ class App:
             self.selected=None
         if move in self.board.legal_moves:
             if self.puzzle_active:
+                if self.puzzle_active=='rush':
+                    session=self.rush_session
+                    if not session:return
+                    if session.get('waiting_engine'):
+                        self.status.set(self.T('Espera a que el motor prepare la posición.','Wait for the engine to prepare the position.'));return
+                    expected=self.puzzle_moves[self.puzzle_index] if self.puzzle_index<len(self.puzzle_moves) else None
+                    if expected is not None and move.from_square==expected.from_square and move.to_square==expected.to_square:
+                        first_try=session['attempts_left']==3
+                        self.play_sound(self.sound_for_move(self.board,move))
+                        self.board.push(move);self.puzzle_index+=1
+                        while self.puzzle_index<len(self.puzzle_moves) and self.board.turn!=self.puzzle_color:
+                            reply=self.puzzle_moves[self.puzzle_index]
+                            if reply not in self.board.legal_moves:break
+                            self.play_sound(self.sound_for_move(self.board,reply))
+                            self.board.push(reply);self.puzzle_index+=1
+                        if self.puzzle_index>=len(self.puzzle_moves):
+                            session['solved']+=1
+                            session['rating']+=puzzle_rush.rating_change(first_try,session['hint_used'])
+                            self.rush_stats['rating']=session['rating'];self._save_puzzle_rush_stats()
+                            self.status.set(self.T('¡Correcto! Sigue el próximo puzzle.','Correct! Here comes the next puzzle.'))
+                            if self._next_rush_puzzle():
+                                self.draw();self.update_puzzle_rush_display()
+                            else:
+                                self.finish_puzzle_rush('empty')
+                        else:
+                            self.status.set(self.T('¡Buena jugada! Continúa la combinación.','Good move! Continue the combination.'))
+                            self.draw();self.update_puzzle_rush_display()
+                    else:
+                        session['attempts_left']-=1;session['wrong']+=1
+                        if session['attempts_left']<=0:
+                            session['rating']=max(100,session['rating']-15)
+                            self.rush_stats['rating']=session['rating'];self._save_puzzle_rush_stats()
+                            self.finish_puzzle_rush('lost');return
+                        self.status.set(self.T(f"No es esa. Intenta otra vez; quedan {session['attempts_left']} oportunidades.",
+                                               f"That is not it. Try again; {session['attempts_left']} tries remain."))
+                        self.draw();self.update_puzzle_rush_display()
+                    return
                 if self.puzzle_active=='best':
                     if self.challenge_best is None:
                         self.status.set(self.T('Espera a que el motor prepare el ejercicio.','Wait while the engine prepares the challenge.'));return
@@ -3031,10 +3214,26 @@ class App:
             self.w.after(100,self.computer_turn)
     def poll(self):
         self.poll_play();self.poll_coach();self.poll_lichess();self.poll_live_broadcast();self.poll_lichess_puzzles();self.poll_engine_match();self.poll_dgt()
+        if self.rush_session and not self.rush_session.get('finished'):
+            self.update_puzzle_rush_display()
         try:
             while True:
                 token,best,error=self.challenge_events.get_nowait()
-                if token!=self.epoch or self.puzzle_active not in ('best','tactic'):continue
+                if token!=self.epoch:continue
+                if self.puzzle_active=='rush' and self.rush_session and self.rush_session.get('waiting_engine'):
+                    session=self.rush_session;session['waiting_engine']=False
+                    if error or best is None:
+                        session['engine_failures']+=1
+                        if session['engine_failures']<=2 and self._next_rush_puzzle():
+                            self.update_puzzle_rush_display()
+                        else:self.finish_puzzle_rush('engine')
+                    else:
+                        self.challenge_best=best;self.puzzle_moves=[best];self.puzzle_index=0;self.puzzle_color=self.board.turn
+                        self.status.set(self.T('Posición lista. Juega la mejor jugada que encontró el motor.',
+                                               'Position ready. Play the best move found by the engine.'))
+                        self.update_puzzle_rush_display()
+                    continue
+                if self.puzzle_active not in ('best','tactic'):continue
                 if error or best is None:
                     self.puzzle_active=False
                     self.put(self.resource_text,self.T('No se pudo preparar el ejercicio: ','Could not prepare the challenge: ')+(error or 'No legal move'))
