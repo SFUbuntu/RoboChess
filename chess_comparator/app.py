@@ -241,7 +241,10 @@ class App:
         self.evalbar=tk.Canvas(board_frame,width=36,height=560,highlightthickness=0,bg='#d9d9d9');self.evalbar.pack(side='left',anchor='n',padx=(0,6))
         board_column=ttk.Frame(board_frame);board_column.pack(side='left',anchor='n')
         self.canvas=tk.Canvas(board_column,width=560,height=560,highlightthickness=0);self.canvas.pack(side='top')
-        self.puzzle_bar=tk.Label(board_column,text='',bg='#1f4b73',fg='white',font=('Arial',11,'bold'),pady=4)
+        self.puzzle_exit=ttk.Frame(board_column)
+        self.puzzle_bar=tk.Label(self.puzzle_exit,text='',bg='#1f4b73',fg='white',font=('Arial',11,'bold'),pady=4)
+        self.puzzle_bar.pack(side='left',fill='x',expand=True)
+        ttk.Button(self.puzzle_exit,text=self.T('Terminar puzzle','End puzzle'),command=self.end_puzzle).pack(side='right',padx=(6,0))
         board_frame.bind('<Configure>',self._fit_board)
         side=ttk.Frame(body,padding=(8,2));body.add(side,weight=1)
         self.study_view=ttk.Frame(side);self.study_view.pack(fill='both',expand=True)
@@ -451,7 +454,7 @@ class App:
         tournament.add_command(label=self.T('Revisar partidas del torneo…','Review tournament games…'),command=self.show_tournament_review)
         training=tk.Menu(bar,tearoff=0);bar.add_cascade(label=self.T('Entrenamiento','Training'),menu=training)
         training.add_command(label=self.T('Puzzles y ejercicios Lucas Chess…','Lucas Chess puzzles and exercises…'),command=self.training_dialog,accelerator='Ctrl+Shift+T')
-        training.add_command(label=self.T('Panel de puzzles…','Puzzle dashboard…'),command=self.puzzle_dashboard)
+        training.add_command(label=self.T('Terminar puzzle y volver','End puzzle and return'),command=self.end_puzzle)
         training.add_command(label=self.T('Puzzle Rush…','Puzzle Rush…'),command=self.puzzle_rush_dialog,accelerator='Ctrl+Shift+R')
         training.add_command(label=self.T('Siguiente ejercicio Lucas Chess','Next Lucas Chess exercise'),command=self.new_puzzle)
         training.add_command(label=self.T('Encontrar la mejor jugada','Find the best move'),command=self.best_move_challenge)
@@ -1675,9 +1678,9 @@ class App:
         if self.puzzle_active or self.puzzle_banner:
             turn=self.puzzle_banner or self.puzzle_turn_text(self.board.turn)
             self.puzzle_bar.configure(text=f'{turn}   ·   Elo {self.puzzle_rating()}')
-            if not self.puzzle_bar.winfo_ismapped():self.puzzle_bar.pack(side='top',fill='x',pady=(4,0))
-        elif self.puzzle_bar.winfo_ismapped():
-            self.puzzle_bar.pack_forget()
+            if not self.puzzle_exit.winfo_ismapped():self.puzzle_exit.pack(side='top',fill='x',pady=(4,0))
+        elif self.puzzle_exit.winfo_ismapped():
+            self.puzzle_exit.pack_forget()
         self.fen.set(self.board.fen())
         self.side_to_move.set('White' if self.board.turn else 'Black')
         self.refresh_move_list();self.refresh_opening_tree()
@@ -1733,6 +1736,13 @@ class App:
         messagebox.showinfo(self.T('Puzzle','Puzzle'),self.puzzle_banner,parent=self.w)
         if self.puzzle_meta:self.w.after(400,self.next_lichess_puzzle)
         else:self.w.after(400,self.new_puzzle)
+    def end_puzzle(self):
+        if self.rush_session:self.finish_puzzle_rush('quit')
+        self.puzzle_active=False;self.puzzle_banner='';self.puzzle_moves=[];self.puzzle_index=0
+        self.puzzle_meta=None;self.selected=None;self.playing=False;self.play_busy=False
+        self.board=chess.Board();self.flipped=False;self.results={};self.final_result=None
+        self.show_study_view();self.draw()
+        self.status.set(self.T('Puzzle terminado. Tablero listo para otra función.','Puzzle ended. The board is ready for another function.'))
     def score_fraction(self,info):
         score=info.get('score') if info else None
         if not score:return None,None
