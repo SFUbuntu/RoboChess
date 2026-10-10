@@ -239,7 +239,9 @@ class App:
         body=ttk.Panedwindow(root_pane,orient='horizontal');root_pane.add(body,weight=6)
         board_frame=ttk.Frame(body,padding=(2,4));self.board_frame=board_frame;body.add(board_frame,weight=0)
         self.evalbar=tk.Canvas(board_frame,width=36,height=560,highlightthickness=0,bg='#d9d9d9');self.evalbar.pack(side='left',anchor='n',padx=(0,6))
-        self.canvas=tk.Canvas(board_frame,width=560,height=560,highlightthickness=0);self.canvas.pack(side='left',anchor='n')
+        board_column=ttk.Frame(board_frame);board_column.pack(side='left',anchor='n')
+        self.canvas=tk.Canvas(board_column,width=560,height=560,highlightthickness=0);self.canvas.pack(side='top')
+        self.puzzle_bar=tk.Label(board_column,text='',bg='#1f4b73',fg='white',font=('Arial',11,'bold'),pady=4)
         board_frame.bind('<Configure>',self._fit_board)
         side=ttk.Frame(body,padding=(8,2));body.add(side,weight=1)
         self.study_view=ttk.Frame(side);self.study_view.pack(fill='both',expand=True)
@@ -1672,8 +1674,10 @@ class App:
         self.draw_evalbar()
         if self.puzzle_active or self.puzzle_banner:
             turn=self.puzzle_banner or self.puzzle_turn_text(self.board.turn)
-            c.create_rectangle(0,0,8*s,28,fill='#1f4b73',outline='')
-            c.create_text(4*s,14,text=f'{turn}   ·   Elo {self.puzzle_rating()}',fill='white',font=('Arial',max(11,int(s*0.2)),'bold'))
+            self.puzzle_bar.configure(text=f'{turn}   ·   Elo {self.puzzle_rating()}')
+            if not self.puzzle_bar.winfo_ismapped():self.puzzle_bar.pack(side='top',fill='x',pady=(4,0))
+        elif self.puzzle_bar.winfo_ismapped():
+            self.puzzle_bar.pack_forget()
         self.fen.set(self.board.fen())
         self.side_to_move.set('White' if self.board.turn else 'Black')
         self.refresh_move_list();self.refresh_opening_tree()
