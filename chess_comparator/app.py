@@ -454,6 +454,7 @@ class App:
         tournament.add_command(label=self.T('Revisar partidas del torneo…','Review tournament games…'),command=self.show_tournament_review)
         training=tk.Menu(bar,tearoff=0);bar.add_cascade(label=self.T('Entrenamiento','Training'),menu=training)
         training.add_command(label=self.T('Puzzles y ejercicios Lucas Chess…','Lucas Chess puzzles and exercises…'),command=self.training_dialog,accelerator='Ctrl+Shift+T')
+        training.add_command(label=self.T('Panel de puzzles…','Puzzle dashboard…'),command=self.puzzle_dashboard)
         training.add_command(label=self.T('Terminar puzzle y volver','End puzzle and return'),command=self.end_puzzle)
         training.add_command(label=self.T('Puzzle Rush…','Puzzle Rush…'),command=self.puzzle_rush_dialog,accelerator='Ctrl+Shift+R')
         training.add_command(label=self.T('Siguiente ejercicio Lucas Chess','Next Lucas Chess exercise'),command=self.new_puzzle)
