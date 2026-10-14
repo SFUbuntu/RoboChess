@@ -81,6 +81,10 @@ Profiles are stored in the user folder, not in this repository.
 
 - Crafty and RoboChess are included.
 - Stockfish is selected separately. The game Elo limit weakens the engine for that game. It does not edit Stockfish's own file.
+- Compatible UCI engines (download separately, then choose the executable with Engines → Add UCI Engine):
+  - [Hakkapeliitta](https://github.com/mAarnos/Hakkapeliitta) by Mikko Aarnos, GPL-3.0. Permission to list it was given by the author.
+  - [RubiChess](https://github.com/Matthies/RubiChess) by Andreas Matthies, GPL-3.0.
+  - [Stockfish](https://stockfishchess.org/download/).
 - The opening book is Polyglot (`.bin`). A ChessBase book (`.ctg`) cannot be opened here. Convert it to `.bin` and choose it under Tutor / Resources.
 - PGN databases: File → Import PGN database. A file of a few thousand games is fine. A database of millions can freeze the window because every game is loaded into memory.
 

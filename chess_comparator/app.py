@@ -148,9 +148,31 @@ class App:
             menu.add_command(label=self.T(f'Elegir archivo de {name}…','Choose {name} executable…').format(name=name),
                              command=lambda n=name:self.choose(n))
         menu.add_separator()
+        menu.add_command(label=self.T('Motores compatibles…','Compatible engines…'),command=self.compatible_engines_dialog)
         menu.add_command(label=self.T('Agregar motor UCI…','Add UCI Engine…'),command=self.add_uci_engine)
         menu.add_separator()
         menu.add_command(label=self.T('Enfrentar dos motores…','Match two engines…'),command=self.engine_match_dialog,accelerator='Ctrl+M')
+    def compatible_engines_dialog(self):
+        win=tk.Toplevel(self.w);win.title(self.T('Motores compatibles','Compatible engines'));win.transient(self.w);win.geometry('720x420')
+        frame=ttk.Frame(win,padding=14);frame.pack(fill='both',expand=True)
+        ttk.Label(frame,text=self.T(
+            'Estos motores hablan UCI. Descárgalos, luego elige el ejecutable con Agregar motor UCI.',
+            'These engines speak UCI. Download one, then choose the executable with Add UCI Engine.'
+        ),wraplength=680).pack(anchor='w',pady=(0,10))
+        engines=(
+            ('Hakkapeliitta','Mikko Aarnos','GPL-3.0','https://github.com/mAarnos/Hakkapeliitta',
+             self.T('Motor UCI de código abierto. Descarga el repositorio; las compilaciones de Windows están en el zip del proyecto.','Open-source UCI engine. Download the repository; Windows builds are included in the project zip.')),
+            ('Stockfish','Stockfish team','GPL-3.0','https://stockfishchess.org/download/',
+             self.T('Motor fuerte. Descarga stockfish.exe y elígelo en Motores.','Strong engine. Download stockfish.exe and choose it under Engines.')),
+            ('RubiChess','Andreas Matthies','GPL-3.0','https://github.com/Matthies/RubiChess',
+             self.T('Motor UCI fuerte. Descarga el paquete de Windows y elige el ejecutable.','Strong UCI engine. Download the Windows package and choose the executable.')),
+        )
+        for name,author,license_name,url,note in engines:
+            box=ttk.LabelFrame(frame,text=name,padding=8);box.pack(fill='x',pady=4)
+            ttk.Label(box,text=self.T(f'Autor: {author}   ·   Licencia: {license_name}',f'Author: {author}   ·   License: {license_name}')).pack(anchor='w')
+            ttk.Label(box,text=note,wraplength=640).pack(anchor='w',pady=(2,4))
+            ttk.Button(box,text=self.T('Descargar','Download'),command=lambda link=url:webbrowser.open(link)).pack(anchor='w')
+        ttk.Button(frame,text=self.T('Agregar motor UCI…','Add UCI Engine…'),command=lambda:(win.destroy(),self.add_uci_engine())).pack(anchor='e',pady=(10,0))
     def select_engine(self,name):
         if name not in self.ENGINE_NAMES:return
         self.play_engine.set(name);self.engine_view.set(name)
