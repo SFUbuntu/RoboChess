@@ -1002,41 +1002,42 @@ class App:
             self.status.set(self.T('Línea guardada: ','Line saved: ')+path)
         except OSError as err:messagebox.showerror('PGN',str(err))
     def make_editor_palette(self):
-        self.editor_white_label=ttk.Label(self.editor_palette,text='Blancas / White:')
+        pieces_row=ttk.Frame(self.editor_palette);pieces_row.pack(fill='x')
+        self.editor_white_label=ttk.Label(pieces_row,text='Blancas / White:')
         self.editor_white_label.pack(side='left',padx=3)
         self.editor_radio_buttons={};self.editor_piece_icons={}
         for symbol in 'KQRBNPkqrbnp':
-            button=ttk.Radiobutton(self.editor_palette,text=symbol,value=symbol,variable=self.editor_choice,
+            button=ttk.Radiobutton(pieces_row,text=symbol,value=symbol,variable=self.editor_choice,
                 command=lambda:self.choose_editor_piece(self.editor_choice.get()))
             if symbol=='k':
-                self.editor_black_label=ttk.Label(self.editor_palette,text='Negras / Black:')
+                self.editor_black_label=ttk.Label(pieces_row,text='Negras / Black:')
                 self.editor_black_label.pack(side='left',padx=(8,2))
             button.pack(side='left',padx=1);self.editor_radio_buttons[symbol]=button
+        controls=ttk.Frame(self.editor_palette);controls.pack(fill='x',pady=(6,0))
         self.castle_w_k=tk.BooleanVar(value=True);self.castle_w_q=tk.BooleanVar(value=True)
         self.castle_b_k=tk.BooleanVar(value=True);self.castle_b_q=tk.BooleanVar(value=True)
-        self.castle_title=ttk.Label(self.editor_side,text=self.T('Enroque','Castling'),font=('Arial',10,'bold'))
-        self.castle_title.pack(anchor='w')
+        self.castle_title=ttk.Label(controls,text=self.T('Enroque','Castling'),font=('Arial',10,'bold'))
+        self.castle_title.pack(side='left',padx=(2,6))
         self.castle_buttons=[
-            ttk.Checkbutton(self.editor_side,text='White O-O',variable=self.castle_w_k),
-            ttk.Checkbutton(self.editor_side,text='White O-O-O',variable=self.castle_w_q),
-            ttk.Checkbutton(self.editor_side,text='Black O-O',variable=self.castle_b_k),
-            ttk.Checkbutton(self.editor_side,text='Black O-O-O',variable=self.castle_b_q),
+            ttk.Checkbutton(controls,text='White O-O',variable=self.castle_w_k),
+            ttk.Checkbutton(controls,text='White O-O-O',variable=self.castle_w_q),
+            ttk.Checkbutton(controls,text='Black O-O',variable=self.castle_b_k),
+            ttk.Checkbutton(controls,text='Black O-O-O',variable=self.castle_b_q),
         ]
-        for button in self.castle_buttons:button.pack(anchor='w',pady=1)
-        ttk.Label(self.editor_side,text='').pack(pady=3)
-        self.editor_turn_label=ttk.Label(self.editor_side,text='Juega / To move:')
-        self.editor_turn_label.pack(anchor='w')
-        self.editor_turn_box=ttk.Combobox(self.editor_side,textvariable=self.side_to_move,
-                                           values=('White','Black'),state='readonly',width=12)
-        self.editor_turn_box.pack(anchor='w',pady=(2,8))
+        for button in self.castle_buttons:button.pack(side='left',padx=2)
+        self.editor_turn_label=ttk.Label(controls,text='Juega / To move:')
+        self.editor_turn_label.pack(side='left',padx=(12,2))
+        self.editor_turn_box=ttk.Combobox(controls,textvariable=self.side_to_move,
+                                           values=('White','Black'),state='readonly',width=8)
+        self.editor_turn_box.pack(side='left',padx=2)
         self.editor_turn_box.bind('<<ComboboxSelected>>',self.editor_turn_changed)
         self.editor_action_buttons=[
-            ttk.Button(self.editor_side,text='Vaciar / Erase',command=lambda:self.choose_editor_piece(None)),
-            ttk.Button(self.editor_side,text='Limpiar / Clear',command=self.clear_editor_board),
-            ttk.Button(self.editor_side,text='Aplicar / Apply',command=self.apply_position_editor),
-            ttk.Button(self.editor_side,text='Cancelar / Cancel',command=self.cancel_position_editor),
+            ttk.Button(controls,text='Vaciar / Erase',command=lambda:self.choose_editor_piece(None)),
+            ttk.Button(controls,text='Limpiar / Clear',command=self.clear_editor_board),
+            ttk.Button(controls,text='Aplicar / Apply',command=self.apply_position_editor),
+            ttk.Button(controls,text='Cancelar / Cancel',command=self.cancel_position_editor),
         ]
-        for button in self.editor_action_buttons:button.pack(fill='x',pady=2)
+        for button in self.editor_action_buttons:button.pack(side='left',padx=3)
         self.refresh_editor_labels()
     def editor_icon(self,symbol):
         key=symbol if symbol.isupper() else '_'+symbol.upper()
@@ -1097,7 +1098,6 @@ class App:
         self.board=chess.Board(None);self.editor_mode=True;self.editor_piece=chess.Piece.from_symbol(self.editor_choice.get())
         self.board.turn=self.side_to_move.get()=='White';self.selected=None
         self.editor_palette.pack(fill='x',padx=8,pady=(2,4),before=self.root_pane)
-        self.editor_side.pack(in_=self.side,side='left',anchor='n',padx=(0,8),before=self.study_view)
         self.refresh_editor_labels()
         self.status.set(self.T('Editor activo: coloca las piezas; debe haber un rey blanco y uno negro.','Editor active: place pieces; the board needs one White king and one Black king.'))
         self.draw()
@@ -1106,7 +1106,7 @@ class App:
     def cancel_position_editor(self):
         if not self.editor_mode:return
         if self.editor_saved_board is not None:self.board=self.editor_saved_board
-        self.editor_mode=False;self.editor_saved_board=None;self.editor_palette.pack_forget();self.editor_side.pack_forget();self.draw()
+        self.editor_mode=False;self.editor_saved_board=None;self.editor_palette.pack_forget();self.draw()
         if self.pdf_diagram_pending:
             self.pdf_diagram_pending=False
             if self.pdf_diagram_window is not None:
@@ -1117,7 +1117,7 @@ class App:
         if len(self.board.pieces(chess.KING,chess.WHITE))!=1 or len(self.board.pieces(chess.KING,chess.BLACK))!=1:
             messagebox.showerror('Posición / Position',self.T('La posición necesita exactamente un rey blanco y un rey negro.','The position must have exactly one White king and one Black king.'));return
         self.board.turn=self.side_to_move.get()=='White';self.apply_editor_castling();self.board.clear_stack();self.editor_mode=False;self.editor_saved_board=None
-        self.editor_palette.pack_forget();self.editor_side.pack_forget();self.results={};self.final_result=None;self.fen.set(self.board.fen())
+        self.editor_palette.pack_forget();self.results={};self.final_result=None;self.fen.set(self.board.fen())
         diagram_analysis=self.pdf_diagram_pending
         self.pdf_diagram_pending=False
         self.status.set(self.T('Posición lista. Puedes analizarla o guardarla como FEN/PGN.','Position ready. You can analyze it or save it as FEN/PGN.'));self.draw()
