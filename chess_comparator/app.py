@@ -247,7 +247,7 @@ class App:
         self.editor_side=ttk.Frame(board_frame,padding=(8,4))
         self.make_editor_palette()
         board_frame.bind('<Configure>',self._fit_board)
-        side=ttk.Frame(body,padding=(8,2));body.add(side,weight=1)
+        side=ttk.Frame(body,padding=(8,2));self.side=side;body.add(side,weight=1)
         self.study_view=ttk.Frame(side);self.study_view.pack(fill='both',expand=True)
         self.video_view=ttk.Panedwindow(side,orient='vertical')
         self.lichess_video=LichessVideo(
@@ -1004,20 +1004,18 @@ class App:
     def make_editor_palette(self):
         self.editor_white_label=ttk.Label(self.editor_palette,text='Blancas / White:')
         self.editor_white_label.pack(side='left',padx=3)
-        self.editor_radio_buttons={}
-        for symbol in 'KQRBNP':
+        self.editor_radio_buttons={};self.editor_piece_icons={}
+        for symbol in 'KQRBNPkqrbnp':
             button=ttk.Radiobutton(self.editor_palette,text=symbol,value=symbol,variable=self.editor_choice,
                 command=lambda:self.choose_editor_piece(self.editor_choice.get()))
-            button.pack(side='left',padx=1);self.editor_radio_buttons[symbol]=button
-        self.editor_black_label=ttk.Label(self.editor_palette,text='Negras / Black:')
-        self.editor_black_label.pack(side='left',padx=(8,2))
-        for symbol in 'kqrbnp':
-            button=ttk.Radiobutton(self.editor_palette,text=symbol,value=symbol,variable=self.editor_choice,
-                command=lambda:self.choose_editor_piece(self.editor_choice.get()))
+            if symbol=='k':
+                self.editor_black_label=ttk.Label(self.editor_palette,text='Negras / Black:')
+                self.editor_black_label.pack(side='left',padx=(8,2))
             button.pack(side='left',padx=1);self.editor_radio_buttons[symbol]=button
         self.castle_w_k=tk.BooleanVar(value=True);self.castle_w_q=tk.BooleanVar(value=True)
         self.castle_b_k=tk.BooleanVar(value=True);self.castle_b_q=tk.BooleanVar(value=True)
-        ttk.Label(self.editor_side,text=self.T('Enroque','Castling'),font=('Arial',10,'bold')).pack(anchor='w')
+        self.castle_title=ttk.Label(self.editor_side,text=self.T('Enroque','Castling'),font=('Arial',10,'bold'))
+        self.castle_title.pack(anchor='w')
         self.castle_buttons=[
             ttk.Checkbutton(self.editor_side,text='White O-O',variable=self.castle_w_k),
             ttk.Checkbutton(self.editor_side,text='White O-O-O',variable=self.castle_w_q),
@@ -1029,7 +1027,7 @@ class App:
         self.editor_turn_label=ttk.Label(self.editor_side,text='Juega / To move:')
         self.editor_turn_label.pack(anchor='w')
         self.editor_turn_box=ttk.Combobox(self.editor_side,textvariable=self.side_to_move,
-                                           values=('White','Black'),state='readonly',width=10)
+                                           values=('White','Black'),state='readonly',width=12)
         self.editor_turn_box.pack(anchor='w',pady=(2,8))
         self.editor_turn_box.bind('<<ComboboxSelected>>',self.editor_turn_changed)
         self.editor_action_buttons=[
@@ -1040,6 +1038,25 @@ class App:
         ]
         for button in self.editor_action_buttons:button.pack(fill='x',pady=2)
         self.refresh_editor_labels()
+    def editor_icon(self,symbol):
+        key=symbol if symbol.isupper() else '_'+symbol.upper()
+        cached=self.editor_piece_icons.get(key)
+        if cached is not None:return cached
+        style=self.piece_style.get()
+        folders=[os.path.join(ROOT,'assets','lucas_styles',style),os.path.join(ROOT,'assets')]
+        if style=='Nibbler':folders.insert(0,os.path.join(ROOT,'assets'))
+        for folder in folders:
+            path=os.path.join(folder,key+'.png')
+            if not os.path.isfile(path):continue
+            try:
+                source=tk.PhotoImage(file=path)
+                factor=max(1,round(max(source.width(),source.height())/28))
+                image=source.subsample(factor,factor) if factor>1 else source
+                self.editor_piece_icons[key]=image
+                return image
+            except (tk.TclError,OSError):
+                continue
+        return None
     def refresh_editor_labels(self):
         if not hasattr(self,'editor_radio_buttons'):return
         names={'K':('Rey','King'),'Q':('Dama','Queen'),'R':('Torre','Rook'),'B':('Alfil','Bishop'),'N':('Caballo','Knight'),'P':('Peón','Pawn')}
@@ -1048,11 +1065,13 @@ class App:
         self.editor_black_label.configure(text=self.T('Negras:','Black:'))
         for symbol,button in self.editor_radio_buttons.items():
             spanish,english=names[symbol.upper()]
-            button.configure(text=self.T(spanish,english))
+            image=self.editor_icon(symbol)
+            button.configure(text=self.T(spanish,english),image=image,compound='left')
         labels=[('Vaciar','Erase'),('Limpiar','Clear'),('Aplicar','Apply'),('Cancelar','Cancel')]
         for button,(spanish,english) in zip(self.editor_action_buttons,labels):
             button.configure(text=self.T(spanish,english))
         self.editor_turn_label.configure(text=self.T('Juega:','To move:'))
+        self.castle_title.configure(text=self.T('Enroque','Castling'))
         castling=[('Blancas O-O','White O-O'),('Blancas O-O-O','White O-O-O'),('Negras O-O','Black O-O'),('Negras O-O-O','Black O-O-O')]
         for button,(spanish,english) in zip(self.castle_buttons,castling):
             button.configure(text=self.T(spanish,english))
@@ -1078,7 +1097,7 @@ class App:
         self.board=chess.Board(None);self.editor_mode=True;self.editor_piece=chess.Piece.from_symbol(self.editor_choice.get())
         self.board.turn=self.side_to_move.get()=='White';self.selected=None
         self.editor_palette.pack(fill='x',padx=8,pady=(2,4),before=self.root_pane)
-        self.editor_side.pack(side='left',anchor='n',padx=(8,0))
+        self.editor_side.pack(in_=self.side,side='left',anchor='n',padx=(0,8),before=self.study_view)
         self.refresh_editor_labels()
         self.status.set(self.T('Editor activo: coloca las piezas; debe haber un rey blanco y uno negro.','Editor active: place pieces; the board needs one White king and one Black king.'))
         self.draw()
@@ -1134,7 +1153,7 @@ class App:
         if self.review_game:
             total=sum(1 for _ in self.review_game.mainline_moves())
             self.review_label.set(f'{self.review_ply} / {total} ply')
-        else:self.review_label.set('PGN review / Revisión PGN')
+        else:self.review_label.set(self.T('Revisión PGN','PGN review'))
     def review_step(self,delta):
         if not self.review_game:return
         moves=list(self.review_game.mainline_moves());self.review_ply=max(0,min(len(moves),self.review_ply+delta))
@@ -1382,8 +1401,12 @@ class App:
             self.mood.set(self.T(f'{name}: 😐 listo','{name}: 😐 ready').replace('{name}',name))
         if not self.playing and not self.puzzle_active:self.status.set(self.T('Selecciona los motores y pulsa Analizar.','Select engines and press Analyze.'))
         if not self.playing:self.put(self.coach_text,self.T('Activa el tutor para recibir consejos. Pulsa Pista o Explicar.','Enable the tutor for advice. Press Hint or Explain.'))
-        if hasattr(self,'lichess_puzzle_status') and 'csv' in self.lichess_puzzle_status.get().lower():
-            self.lichess_puzzle_status.set(self.T('La colección oficial se descarga aparte; puedes elegir .csv, .csv.zst o .csv.gz.','The official collection is downloaded separately; you can choose .csv, .csv.zst or .csv.gz.'))
+        if hasattr(self,'clock_label') and not self.playing:
+            self.clock_label.set(self.T('Reloj: —','Clock: —'))
+        if hasattr(self,'database_label') and 'PGN' in self.database_label.get():
+            self.database_label.set(self.T('Sin base PGN cargada','No PGN database loaded'))
+        if hasattr(self,'review_label') and not self.review_game:
+            self.review_label.set(self.T('Revisión PGN','PGN review'))
     def refresh_tree_headings(self):
         if not hasattr(self,'opening_tree'):return
         headings={
