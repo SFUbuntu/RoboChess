@@ -181,6 +181,7 @@ class App:
         self.status.set(self.T(f'{name} seleccionado. Pulsa Analizar o inicia una partida.',f'{name} selected. Press Analyze or start a game.'))
     def __init__(self, window):
         self.w=window; window.title('RoboChess · Nibbler chess study'); window.geometry('1540x960'); window.minsize(1180,760)
+        set_window_icon(window)
         self.board=chess.Board(); self.events=queue.Queue(); self.epoch=0; self.engines={}; self.selected=None; self.results={}
         self.custom_engines=self._read_custom_engines()
         self.paths={'Stockfish':'','Crafty':os.path.join(ROOT,'crafty-linux' if platform.system()=='Linux' else 'crafty.exe'),
@@ -3536,6 +3537,25 @@ class App:
         if hasattr(self,'pdf_reader'):self.pdf_reader.close_document()
         self.stop();self.w.destroy()
 
+def set_window_icon(window):
+    """Use the white rook as the window and taskbar icon."""
+    candidates=(
+        os.path.join(ROOT,'assets','R.png'),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)),'assets','R.png'),
+    )
+    path=next((item for item in candidates if os.path.isfile(item)),None)
+    if not path:return
+    try:
+        image=tk.PhotoImage(file=path)
+        window.iconphoto(True, image)
+        window._rook_icon=image
+    except Exception:
+        pass
+    ico=os.path.join(os.path.dirname(path),'rook.ico')
+    if os.path.isfile(ico):
+        try:window.iconbitmap(ico)
+        except Exception:pass
+
 def show_splash(root):
     """Show the bundled RoboChess splash without requiring Pillow."""
     candidates=(
@@ -3586,6 +3606,7 @@ def show_splash(root):
 if __name__=='__main__':
     try:
         window=tk.Tk()
+        set_window_icon(window)
         App(window)
         show_splash(window)
         window.mainloop()

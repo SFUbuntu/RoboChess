@@ -46,6 +46,7 @@ echo Esto tarda varios minutos.
 echo.
 
 %PY% -m PyInstaller --noconfirm --clean --windowed --onedir --name RoboChess ^
+  --icon assets\rook.ico ^
   --paths vendor --hidden-import chess --hidden-import chess.engine --hidden-import chess.pgn ^
   --hidden-import chess.polyglot --hidden-import chess.gaviota --hidden-import chess.svg ^
   --hidden-import profile_store --hidden-import board_settings --hidden-import training_resources ^
