@@ -36,8 +36,21 @@ if %errorlevel% neq 0 (
   exit /b 1
 )
 
-echo Iniciando app.py ...
-echo Si aparece un error, esta ventana no se cerrara.
+echo Iniciando RoboChess sin terminal...
+echo Si no abre, ejecuta DEPURAR.bat para ver el error.
+echo.
+
+where pyw >nul 2>&1
+if %errorlevel%==0 (
+  start "" pyw -3 "%~dp0app.py"
+  exit /b 0
+)
+where pythonw >nul 2>&1
+if %errorlevel%==0 (
+  start "" pythonw "%~dp0app.py"
+  exit /b 0
+)
+echo No se encontro pythonw. Abriendo con la terminal para que veas el error.
 echo.
 %PY% "%~dp0app.py"
 set "RC=%errorlevel%"
