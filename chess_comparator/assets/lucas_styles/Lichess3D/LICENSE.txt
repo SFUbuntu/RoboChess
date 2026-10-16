@@ -4,5 +4,5 @@ Source: Staunton-Pieces, Wood renders, by James Clarke
 https://github.com/clarkerubber/Staunton-Pieces
 License: MIT
 
-These are the open-source 3D wooden Staunton pieces used by Lichess.
-Renamed and fitted for RoboChess.
+Black pieces keep the original dark wood grain.
+White pieces use the same wood grain, recolored to light maple so both sides look wooden.
