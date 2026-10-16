@@ -1176,9 +1176,21 @@ class App:
         if self.review_game:
             total=sum(1 for _ in self.review_game.mainline_moves())
             self.review_label.set(f'{self.review_ply} / {total} ply')
+        elif self.board.move_stack:
+            total=len(self.board.move_stack)
+            self.review_label.set(f'{total} / {total} ply')
         else:self.review_label.set(self.T('Revisión PGN','PGN review'))
+    def ensure_review_from_board(self):
+        """Turn the current game into a review when no PGN is loaded."""
+        if self.review_game is not None or not self.board.move_stack:
+            return
+        self.review_game=chess.pgn.Game.from_board(self.board)
+        self.review_ply=len(self.board.move_stack)
     def review_step(self,delta):
+        self.ensure_review_from_board()
         if not self.review_game:return
+        if self.playing or self.play_busy:
+            self.stop();self.playing=False;self.play_busy=False
         moves=list(self.review_game.mainline_moves());self.review_ply=max(0,min(len(moves),self.review_ply+delta))
         board=self.review_game.board();sound=None
         for index,move in enumerate(moves[:self.review_ply]):
@@ -1186,6 +1198,7 @@ class App:
             board.push(move)
         if sound:self.play_sound(sound)
         self.stop();self.playing=False;self.play_busy=False;self.results={};self.board=board;self.side_to_move.set('White' if board.turn else 'Black');self.draw()
+        self.refresh_move_list()
     def refresh_opening_tree(self):
         if not hasattr(self,'opening_tree'):return
         for iid in self.opening_tree.get_children():self.opening_tree.delete(iid)
