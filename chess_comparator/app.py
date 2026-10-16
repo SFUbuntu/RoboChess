@@ -60,6 +60,7 @@ try:
     import lichess_puzzles
     import puzzle_rush
     import personalities
+    import eco_openings
     from lichess_video import LichessVideo
     from pdf_book_reader import PDFBookReader
     from descriptive_notation import parse_line as parse_chess_book_line
@@ -201,7 +202,8 @@ class App:
         self.board_palette=tk.StringVar(value=initial_palette)
         self.book_path=training_resources.BOOK
         self.book_paths={str(p.relative_to(training_resources.BOOKS)):p for p in training_resources.book_files()}
-        self.book_choice=tk.StringVar(value=next((k for k,v in self.book_paths.items() if v==self.book_path),'GMopenings.bin'))
+        self.eco_book=eco_openings.EcoBook()
+        self.eco_label=tk.StringVar(value='ECO —')
         self.training_sets=training_resources.training_sets();self.training_choice=tk.StringVar(value='All Lucas Chess exercises')
         self.external_training=None;self.puzzle_moves=[];self.puzzle_index=0;self.puzzle_color=None
         self.puzzle_mistakes=0;self.puzzle_failed=False;self.puzzle_banner='';self.puzzle_undo_token=0
@@ -312,6 +314,7 @@ class App:
         for text,delta in [('|◀',-99999),('◀',-1),('▶',1),('▶|',99999)]:ttk.Button(review_bar,text=text,width=4,command=lambda d=delta:self.review_step(d)).pack(side='left',padx=2)
         ttk.Label(review_bar,textvariable=self.review_label).pack(side='left',padx=5)
         self.opening_frame=ttk.LabelFrame(self.study_view,text='Libro de aperturas / Opening book',padding=4);self.opening_frame.pack(fill='both',expand=True,pady=5)
+        ttk.Label(self.opening_frame,textvariable=self.eco_label,font=('Segoe UI',10,'bold')).pack(anchor='w',pady=(0,3))
         cols=('move','weight','share');self.opening_tree=ttk.Treeview(self.opening_frame,columns=cols,show='headings',height=5)
         for key,title,width in [('move','Jugada / Move',150),('weight','Frecuencia / Weight',150),('share','Porcentaje / Share',110)]:self.opening_tree.heading(key,text=title);self.opening_tree.column(key,width=width,anchor='center')
         self.opening_tree.pack(fill='both',expand=True)
@@ -477,7 +480,7 @@ class App:
         tournament.add_command(label=self.T('Panel del torneo','Tournament panel'),command=self.quad_dialog)
         tournament.add_command(label=self.T('Revisar partidas del torneo…','Review tournament games…'),command=self.show_tournament_review)
         training=tk.Menu(bar,tearoff=0);bar.add_cascade(label=self.T('Entrenamiento','Training'),menu=training)
-        training.add_command(label=self.T('Puzzles y ejercicios Lucas Chess…','Lucas Chess puzzles and exercises…'),command=self.training_dialog,accelerator='Ctrl+Shift+T')
+        training.add_command(label=self.T('Enciclopedia de aperturas ECO…','ECO opening encyclopedia…'),command=self.eco_dialog)
         training.add_command(label=self.T('Panel de puzzles…','Puzzle dashboard…'),command=self.puzzle_dashboard)
         training.add_command(label=self.T('Terminar puzzle y volver','End puzzle and return'),command=self.end_puzzle)
         training.add_command(label=self.T('Puzzle Rush…','Puzzle Rush…'),command=self.puzzle_rush_dialog,accelerator='Ctrl+Shift+R')
@@ -1173,6 +1176,7 @@ class App:
             else:rows.append(f'{number}… {san}')
         text='   '.join(rows) if rows else '—'
         self.put(self.move_text,text)
+        self.refresh_eco_label()
         if self.review_game:
             total=sum(1 for _ in self.review_game.mainline_moves())
             self.review_label.set(f'{self.review_ply} / {total} ply')
@@ -1201,10 +1205,52 @@ class App:
         self.refresh_move_list()
     def refresh_opening_tree(self):
         if not hasattr(self,'opening_tree'):return
+        self.refresh_eco_label()
         for iid in self.opening_tree.get_children():self.opening_tree.delete(iid)
         try:moves=training_resources.book_moves(self.board,self.book_path)
         except (OSError,ValueError,IndexError):moves=[]
         for san,weight,percentage in moves[:12]:self.opening_tree.insert('', 'end',values=(san,weight,f'{percentage}%'))
+    def refresh_eco_label(self):
+        if not hasattr(self,'eco_label'):return
+        found=self.eco_book.identify(self.board) if hasattr(self,'eco_book') else None
+        if found:
+            self.eco_label.set(f"ECO {found['code']} · {found['name']}")
+        else:
+            self.eco_label.set(self.T('ECO — posición sin apertura clasificada','ECO — unclassified position'))
+    def eco_dialog(self):
+        win=tk.Toplevel(self.w);win.title(self.T('Enciclopedia de aperturas ECO','ECO opening encyclopedia'));win.geometry('760x520')
+        win.transient(self.w)
+        search=tk.StringVar()
+        top=ttk.Frame(win,padding=8);top.pack(fill='x')
+        ttk.Label(top,text=self.T('Buscar por código o nombre','Search by code or name')).pack(side='left')
+        box=ttk.Entry(top,textvariable=search,width=40);box.pack(side='left',padx=8)
+        tree=ttk.Treeview(win,columns=('code','name','moves'),show='headings')
+        tree.heading('code',text='ECO');tree.column('code',width=70,anchor='center')
+        tree.heading('name',text=self.T('Apertura','Opening'));tree.column('name',width=360,anchor='w')
+        tree.heading('moves',text=self.T('Jugadas','Moves'));tree.column('moves',width=280,anchor='w')
+        tree.pack(fill='both',expand=True,padx=8,pady=4)
+        def fill():
+            for iid in tree.get_children():tree.delete(iid)
+            for index,entry in enumerate(self.eco_book.search(search.get())):
+                tree.insert('','end',iid=str(index),values=(entry['c'],entry['n'],entry['m']))
+        def load(_event=None):
+            selection=tree.selection()
+            if not selection:return
+            matches=self.eco_book.search(search.get())
+            entry=matches[int(selection[0])]
+            board=self.eco_book.load_board(entry)
+            self.stop();self.playing=False;self.play_busy=False;self.puzzle_active=False;self.results={};self.review_game=None
+            self.board=board;self.selected=None;self.draw();self.refresh_move_list();self.refresh_opening_tree()
+            self.status.set(f"ECO {entry['c']} · {entry['n']}")
+            win.destroy()
+        ttk.Button(top,text=self.T('Buscar','Search'),command=fill).pack(side='left')
+        box.bind('<Return>',lambda _e:fill())
+        tree.bind('<Double-1>',load)
+        bottom=ttk.Frame(win,padding=8);bottom.pack(fill='x')
+        ttk.Button(bottom,text=self.T('Cargar en el tablero','Load on the board'),command=load).pack(side='left')
+        ttk.Button(bottom,text=self.T('Cerrar','Close'),command=win.destroy).pack(side='right')
+        fill()
+        box.focus_set()
     def open_pgn_database(self):
         path=filedialog.askopenfilename(title='Select a PGN database',filetypes=[('PGN files','*.pgn'),('All files','*.*')])
         if not path:return
