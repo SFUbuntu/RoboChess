@@ -202,6 +202,7 @@ class App:
         self.board_palette=tk.StringVar(value=initial_palette)
         self.book_path=training_resources.BOOK
         self.book_paths={str(p.relative_to(training_resources.BOOKS)):p for p in training_resources.book_files()}
+        self.book_choice=tk.StringVar(value=next((k for k,v in self.book_paths.items() if v==self.book_path),'GMopenings.bin'))
         self.eco_book=eco_openings.EcoBook()
         self.eco_label=tk.StringVar(value='ECO —')
         self.training_sets=training_resources.training_sets();self.training_choice=tk.StringVar(value='All Lucas Chess exercises')
