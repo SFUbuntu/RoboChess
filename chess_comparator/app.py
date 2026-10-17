@@ -41,7 +41,7 @@ def _fatal(title, message):
     sys.exit(1)
 
 try:
-    import threading, queue, platform, math, tempfile, random, time, tkinter as tk, urllib.request, urllib.parse, urllib.error, io, webbrowser, csv, json, base64
+    import threading, queue, platform, math, tempfile, random, time, subprocess, tkinter as tk, urllib.request, urllib.parse, urllib.error, io, webbrowser, csv, json, base64
     from pathlib import Path
     from tkinter import ttk, filedialog, messagebox, colorchooser, simpledialog
 except Exception:
@@ -879,7 +879,7 @@ class App:
         previous_path=self.paths.get(existing) if existing else None
         engine=None
         try:
-            engine=chess.engine.SimpleEngine.popen_uci(self._uci_command(path),timeout=12)
+            engine=chess.engine.SimpleEngine.popen_uci(self._uci_command(path),timeout=12,**self._hidden_popen())
             reported=engine.id.get('name','UCI engine')
             engine.quit();engine=None
         except Exception as err:
@@ -2228,21 +2228,27 @@ class App:
         for name in names:
             self.put(self.panels[name],'Analyzing…' if self.paths[name] else 'Choose an executable to enable this engine.')
             if self.paths[name]:threading.Thread(target=self.worker,args=(name,self.paths[name],board.copy(),seconds,token),daemon=True).start()
+    def _hidden_popen(self):
+        """Keep engine consoles from flashing on Windows."""
+        if os.name != 'nt':
+            return {}
+        return {'creationflags': subprocess.CREATE_NO_WINDOW}
     def open_engine(self,name,path):
         work=None
+        hidden=self._hidden_popen()
         try:
             if name in ('Stockfish','RoboChess') or name in self.custom_engines:
                 command=self._uci_command(path) if name in self.custom_engines else path
-                engine=chess.engine.SimpleEngine.popen_uci(command,timeout=15)
+                engine=chess.engine.SimpleEngine.popen_uci(command,timeout=15,**hidden)
             else:
                 lower=os.path.basename(path).lower()
                 if lower.endswith('.py'):
-                    engine=chess.engine.SimpleEngine.popen_uci([sys.executable,path],timeout=20)
+                    engine=chess.engine.SimpleEngine.popen_uci([sys.executable,path],timeout=20,**hidden)
                 elif 'uci' in lower or lower.endswith('.bat') or lower.endswith('.cmd'):
-                    engine=chess.engine.SimpleEngine.popen_uci(path,timeout=20)
+                    engine=chess.engine.SimpleEngine.popen_uci(path,timeout=20,**hidden)
                 else:
                     work=tempfile.TemporaryDirectory(prefix='crafty-analysis-')
-                    engine=chess.engine.SimpleEngine.popen_xboard([path,'xboard'] if lower=='crafty.exe' else path,timeout=20,cwd=work.name,env={**os.environ,'CRAFTY_LOG_PATH':'.'})
+                    engine=chess.engine.SimpleEngine.popen_xboard([path,'xboard'] if lower=='crafty.exe' else path,timeout=20,cwd=work.name,env={**os.environ,'CRAFTY_LOG_PATH':'.'},**hidden)
             return engine,work
         except Exception:
             if work:work.cleanup()

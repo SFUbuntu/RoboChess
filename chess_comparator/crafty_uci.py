@@ -1,5 +1,5 @@
 """Personal-use UCI bridge for the unmodified Crafty XBoard engine."""
-import os, sys, threading, logging, tempfile
+import os, sys, threading, logging, tempfile, subprocess
 ROOT=os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0,os.path.join(ROOT,'vendor'))
 import chess, chess.engine
@@ -14,7 +14,9 @@ class Bridge:
     def emit(self,s):
         with self.out:print(s,flush=True)
     def connect(self):
-        if self.engine is None:self.engine=chess.engine.SimpleEngine.popen_xboard([self.path,'xboard'] if os.name=='nt' else self.path,timeout=30,cwd=self.workdir.name,env={**os.environ,'CRAFTY_LOG_PATH':'.'})
+        if self.engine is None:
+            hidden={'creationflags': subprocess.CREATE_NO_WINDOW} if os.name=='nt' else {}
+            self.engine=chess.engine.SimpleEngine.popen_xboard([self.path,'xboard'] if os.name=='nt' else self.path,timeout=30,cwd=self.workdir.name,env={**os.environ,'CRAFTY_LOG_PATH':'.'},**hidden)
     def stop(self):
         active=self.worker is not None and self.worker.is_alive()
         self.generation+=1
