@@ -481,7 +481,7 @@ class App:
         tournament.add_command(label=self.T('Panel del torneo','Tournament panel'),command=self.quad_dialog)
         tournament.add_command(label=self.T('Revisar partidas del torneo…','Review tournament games…'),command=self.show_tournament_review)
         training=tk.Menu(bar,tearoff=0);bar.add_cascade(label=self.T('Entrenamiento','Training'),menu=training)
-        training.add_command(label=self.T('Enciclopedia de aperturas ECO…','ECO opening encyclopedia…'),command=self.eco_dialog)
+        training.add_command(label=self.T('Análisis profundo de la partida…','Deep game analysis…'),command=self.deep_analysis_dialog)
         training.add_command(label=self.T('Panel de puzzles…','Puzzle dashboard…'),command=self.puzzle_dashboard)
         training.add_command(label=self.T('Terminar puzzle y volver','End puzzle and return'),command=self.end_puzzle)
         training.add_command(label=self.T('Puzzle Rush…','Puzzle Rush…'),command=self.puzzle_rush_dialog,accelerator='Ctrl+Shift+R')
@@ -510,9 +510,13 @@ class App:
             ('<Control-Shift-b>',self.open_pdf_book),
             ('<Control-z>',self.undo),('<Control-r>',self.reset),('<Control-f>',self.flip_board),
             ('<Control-a>',self.analyze),('<Control-m>',self.engine_match_dialog),('<Control-q>',self.close),
+            ('<Left>',lambda:self._review_arrow(-1)),('<Right>',lambda:self._review_arrow(1)),
         )
         for sequence,action in bindings:
-            self.w.bind_all(sequence,lambda event,callback=action:(callback(),'break')[1])
+            if sequence in ('<Left>','<Right>'):
+                self.w.bind_all(sequence,lambda event,callback=action:callback() or None)
+            else:
+                self.w.bind_all(sequence,lambda event,callback=action:(callback(),'break')[1])
     def keyboard_shortcuts_dialog(self):
         title=self.T('Atajos de teclado','Keyboard Shortcuts')
         rows=(
@@ -1191,7 +1195,13 @@ class App:
             return
         self.review_game=chess.pgn.Game.from_board(self.board)
         self.review_ply=len(self.board.move_stack)
-    def review_step(self,delta):
+    def _review_arrow(self,delta):
+        focus=self.w.focus_get()
+        if focus and focus.winfo_class() in ('Entry','TEntry','Text','TCombobox'):
+            return
+        if not self.review_game and not self.board.move_stack:
+            return
+        self.review_step(delta)
         self.ensure_review_from_board()
         if not self.review_game:return
         if self.playing or self.play_busy:
@@ -1204,6 +1214,13 @@ class App:
         if sound:self.play_sound(sound)
         self.stop();self.playing=False;self.play_busy=False;self.results={};self.board=board;self.side_to_move.set('White' if board.turn else 'Black');self.draw()
         self.refresh_move_list()
+        if self.review_game and self.review_ply:
+            node=self.review_game
+            for _ in range(self.review_ply):
+                if not node.variations:break
+                node=node.variations[0]
+            if node.comment:
+                self.status.set(node.comment.strip())
     def refresh_opening_tree(self):
         if not hasattr(self,'opening_tree'):return
         self.refresh_eco_label()
@@ -1257,6 +1274,122 @@ class App:
         ttk.Button(bottom,text=self.T('Cerrar','Close'),command=win.destroy).pack(side='right')
         fill()
         box.focus_set()
+    def deep_analysis_dialog(self):
+        self.ensure_review_from_board()
+        if not self.review_game or not list(self.review_game.mainline_moves()):
+            messagebox.showinfo(self.T('Análisis profundo','Deep analysis'),self.T('Carga una partida o juega algunas jugadas primero.','Load a game or play some moves first.'));return
+        name=self.engine_view.get()
+        path=self.paths.get(name)
+        if not path:
+            messagebox.showerror(self.T('Motor','Engine'),self.T('Selecciona un motor en el panel de análisis.','Select an engine in the analysis panel.'));return
+        if not messagebox.askyesno(self.T('Análisis profundo','Deep analysis'),
+                self.T(f'Analizar la partida completa con {name}. Puede tardar varios minutos. ¿Continuar?',
+                       f'Analyze the full game with {name}. This may take several minutes. Continue?')):return
+        self.stop();self.playing=False;self.play_busy=False
+        self.status.set(self.T('Analizando partida…','Analyzing game…'))
+        threading.Thread(target=self._deep_analysis_worker,args=(name,path,self.review_game),daemon=True).start()
+    def _deep_analysis_worker(self,name,path,game):
+        engine=None
+        try:
+            engine,work=self.open_engine(name,path)
+            if 'OwnBook' in engine.options:
+                engine.configure({'OwnBook':False})
+            board=game.board()
+            nodes=list(game.mainline())
+            total=len(nodes)
+            book_ended=False
+            for index,node in enumerate(nodes):
+                if node.move is None:continue
+                move=node.move
+                self.w.after(0,lambda i=index,t=total:self.status.set(self.T(f'Analizando jugada {i+1}/{t}…',f'Analyzing move {i+1}/{t}…')))
+                book_moves=[]
+                try:book_moves=training_resources.book_moves(board,self.book_path)
+                except Exception:pass
+                in_book=any(san==board.san(move) for san,_,_ in book_moves)
+                if in_book and not book_ended:
+                    node.comment=(node.comment or '')+' [Book]'
+                    board.push(move);continue
+                if not book_ended and not in_book:
+                    book_ended=True
+                    node.comment=(node.comment or '')+' [End of book]'
+                try:
+                    info=engine.analyse(board,chess.engine.Limit(time=0.4))
+                    score=info.get('score')
+                    pv=info.get('pv',[])
+                    best=pv[0] if pv else None
+                    before=score.pov(board.turn).score(mate_score=10000) if score else 0
+                    better_san=''
+                    if best and best!=move:
+                        try:better_san=board.san(best)
+                        except Exception:better_san=best.uci()
+                    parent_board=board.copy()
+                    board.push(move)
+                    after_info=engine.analyse(board,chess.engine.Limit(time=0.3))
+                    after_score=after_info.get('score')
+                    after=after_score.pov(not board.turn).score(mate_score=10000) if after_score else before
+                    drop=before-after
+                    label='Best' if best and move==best else 'Good'
+                    if drop>=200:label='Blunder'
+                    elif drop>=100:label='Mistake'
+                    elif drop>=50:label='Inaccuracy'
+                    comment=f' [{label}]'
+                    if better_san:comment+=f' Better: {better_san}'
+                    node.comment=(node.comment or '')+comment
+                    if best and best!=move and best in parent_board.legal_moves:
+                        var=node.add_variation(best)
+                        copy=parent_board.copy();copy.push(best)
+                        for m in pv[1:4]:
+                            if m in copy.legal_moves:
+                                var=var.add_variation(m);copy.push(m)
+                except Exception as err:
+                    if board.move_stack and board.peek()==move:pass
+                    else:board.push(move)
+                    node.comment=(node.comment or '')+f' [Analysis error]'
+            # Final summary
+            final=board
+            structure=self._describe_structure(final)
+            kings=self._describe_kings(final)
+            game.headers['Annotator']='RoboChess deep analysis'
+            root=game
+            if root.variations:
+                root.variations[0].comment=(root.variations[0].comment or '')+f'\n\nSummary: {structure}. {kings}.'
+            self.w.after(0,lambda:self._finish_deep_analysis(game))
+        except Exception as err:
+            self.w.after(0,lambda:messagebox.showerror(self.T('Análisis','Analysis'),str(err)))
+        finally:
+            if engine:
+                try:engine.quit()
+                except Exception:pass
+    def _describe_structure(self,board):
+        white_pawns=list(board.pieces(chess.PAWN,chess.WHITE))
+        black_pawns=list(board.pieces(chess.PAWN,chess.BLACK))
+        def islands(pawns):
+            files=sorted(set(chess.square_file(p) for p in pawns))
+            if not files:return 0
+            count=1
+            for a,b in zip(files,files[1:]):
+                if b>a+1:count+=1
+            return count
+        return f'Pawn structure: White {islands(white_pawns)} islands, Black {islands(black_pawns)} islands'
+    def _describe_kings(self,board):
+        wk=board.king(chess.WHITE);bk=board.king(chess.BLACK)
+        def safety(king,color):
+            if king is None:return 'no king'
+            rank=chess.square_rank(king)
+            home=0 if color==chess.WHITE else 7
+            return 'castled' if abs(rank-home)<=1 and chess.square_file(king) in (1,2,6,7) else 'central'
+        return f'King safety: White {safety(wk,chess.WHITE)}, Black {safety(bk,chess.BLACK)}'
+    def _finish_deep_analysis(self,game):
+        self.review_game=game
+        self.review_ply=sum(1 for _ in game.mainline_moves())
+        self.board=game.end().board()
+        self.draw()
+        self.status.set(self.T('Análisis profundo terminado. Usa las flechas para revisar.','Deep analysis finished. Use the arrows to review.'))
+        if messagebox.askyesno(self.T('Guardar','Save'),self.T('¿Guardar el informe en PGN?','Save the report as PGN?')):
+            path=filedialog.asksaveasfilename(defaultextension='.pgn',filetypes=[('PGN','*.pgn')])
+            if path:
+                with open(path,'w',encoding='utf-8') as f:print(game,file=f,end='\n\n')
+                self.status.set(self.T(f'Guardado: {path}',f'Saved: {path}'))
     def open_pgn_database(self):
         path=filedialog.askopenfilename(title='Select a PGN database',filetypes=[('PGN files','*.pgn'),('All files','*.*')])
         if not path:return
@@ -1848,8 +1981,12 @@ class App:
                                       fill=fill,outline=ink,width=2)
                         c.create_text(x+s//2,y+s//2,text=p.symbol().upper(),fill=ink,
                                       font=('Arial',max(14,int(s*.42)),'bold'))
-                if col==0:c.create_text(x+9,y+12,text=str(8-row),fill='#354139')
-                if row==7:c.create_text(x+s-10,y+s-10,text=chr(97+col),fill='#354139')
+                if col==0:
+                    rank_num=(row+1) if self.flipped else (8-row)
+                    c.create_text(x+9,y+12,text=str(rank_num),fill='#354139')
+                if row==7:
+                    file_letter=chr(97+(7-col)) if self.flipped else chr(97+col)
+                    c.create_text(x+s-10,y+s-10,text=file_letter,fill='#354139')
         self.draw_arrows()
         self.draw_evalbar()
         if self.puzzle_active or self.puzzle_banner:
