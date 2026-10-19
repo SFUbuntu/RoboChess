@@ -1202,11 +1202,13 @@ class App:
         if not self.review_game and not self.board.move_stack:
             return
         self.review_step(delta)
+    def review_step(self,delta):
         self.ensure_review_from_board()
         if not self.review_game:return
         if self.playing or self.play_busy:
             self.stop();self.playing=False;self.play_busy=False
-        moves=list(self.review_game.mainline_moves());self.review_ply=max(0,min(len(moves),self.review_ply+delta))
+        moves=list(self.review_game.mainline_moves())
+        self.review_ply=max(0,min(len(moves),self.review_ply+delta))
         board=self.review_game.board();sound=None
         for index,move in enumerate(moves[:self.review_ply]):
             if delta>0 and index==self.review_ply-1:sound=self.sound_for_move(board,move)
@@ -1294,24 +1296,30 @@ class App:
             engine,work=self.open_engine(name,path)
             if 'OwnBook' in engine.options:
                 engine.configure({'OwnBook':False})
+            # Work on a copy so the original game is never altered.
+            annotated=chess.pgn.Game()
+            annotated.headers=game.headers.copy()
             board=game.board()
+            node=annotated
             nodes=list(game.mainline())
-            total=len(nodes)
+            total=len([n for n in nodes if n.move])
             book_ended=False
-            for index,node in enumerate(nodes):
-                if node.move is None:continue
-                move=node.move
-                self.w.after(0,lambda i=index,t=total:self.status.set(self.T(f'Analizando jugada {i+1}/{t}…',f'Analyzing move {i+1}/{t}…')))
+            step=0
+            for src in nodes:
+                if src.move is None:continue
+                move=src.move
+                step+=1
+                self.w.after(0,lambda i=step,t=total:self.status.set(self.T(f'Analizando jugada {i}/{t}…',f'Analyzing move {i}/{t}…')))
                 book_moves=[]
                 try:book_moves=training_resources.book_moves(board,self.book_path)
                 except Exception:pass
                 in_book=any(san==board.san(move) for san,_,_ in book_moves)
+                comment=''
                 if in_book and not book_ended:
-                    node.comment=(node.comment or '')+' [Book]'
-                    board.push(move);continue
-                if not book_ended and not in_book:
+                    comment='[Book]'
+                elif not book_ended:
                     book_ended=True
-                    node.comment=(node.comment or '')+' [End of book]'
+                    comment='[End of book]'
                 try:
                     info=engine.analyse(board,chess.engine.Limit(time=0.4))
                     score=info.get('score')
@@ -1322,7 +1330,6 @@ class App:
                     if best and best!=move:
                         try:better_san=board.san(best)
                         except Exception:better_san=best.uci()
-                    parent_board=board.copy()
                     board.push(move)
                     after_info=engine.analyse(board,chess.engine.Limit(time=0.3))
                     after_score=after_info.get('score')
@@ -1332,28 +1339,20 @@ class App:
                     if drop>=200:label='Blunder'
                     elif drop>=100:label='Mistake'
                     elif drop>=50:label='Inaccuracy'
-                    comment=f' [{label}]'
+                    comment=(comment+' ' if comment else '')+f'[{label}]'
                     if better_san:comment+=f' Better: {better_san}'
-                    node.comment=(node.comment or '')+comment
-                    if best and best!=move and best in parent_board.legal_moves:
-                        var=node.add_variation(best)
-                        copy=parent_board.copy();copy.push(best)
-                        for m in pv[1:4]:
-                            if m in copy.legal_moves:
-                                var=var.add_variation(m);copy.push(m)
-                except Exception as err:
-                    if board.move_stack and board.peek()==move:pass
-                    else:board.push(move)
-                    node.comment=(node.comment or '')+f' [Analysis error]'
-            # Final summary
-            final=board
-            structure=self._describe_structure(final)
-            kings=self._describe_kings(final)
-            game.headers['Annotator']='RoboChess deep analysis'
-            root=game
-            if root.variations:
-                root.variations[0].comment=(root.variations[0].comment or '')+f'\n\nSummary: {structure}. {kings}.'
-            self.w.after(0,lambda:self._finish_deep_analysis(game))
+                except Exception:
+                    if not board.move_stack or board.peek()!=move:
+                        board.push(move)
+                    comment=(comment+' ' if comment else '')+'[Analysis error]'
+                node=node.add_main_variation(move)
+                if comment:node.comment=comment
+            structure=self._describe_structure(board)
+            kings=self._describe_kings(board)
+            annotated.headers['Annotator']='RoboChess deep analysis'
+            if annotated.variations:
+                annotated.variations[0].comment=(annotated.variations[0].comment or '')+f'\n\nSummary: {structure}. {kings}.'
+            self.w.after(0,lambda:self._finish_deep_analysis(annotated))
         except Exception as err:
             self.w.after(0,lambda:messagebox.showerror(self.T('Análisis','Analysis'),str(err)))
         finally:
