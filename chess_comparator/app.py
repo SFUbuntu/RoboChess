@@ -217,6 +217,7 @@ class App:
         self.lichess_puzzle_file=tk.StringVar(value='');self.lichess_puzzle_events=queue.Queue();self.lichess_puzzle_token=0;self.puzzle_meta=None
         self.gaviota_path=training_resources.GAVIOTA;self.puzzle_active=False;self.challenge_best=None;self.challenge_events=queue.Queue()
         self.play_engine=tk.StringVar(value='Stockfish');self.play_color=tk.StringVar(value='White')
+        self.sargon_style=tk.StringVar(value='Tal-Fischer')
         self.target_elo=tk.StringVar(value='1500');self.move_seconds=tk.StringVar(value='5')
         self.time_control=tk.StringVar(value='No clock / Sin reloj (5 s/move)')
         self.clock_label=tk.StringVar(value='Reloj: —')
@@ -565,7 +566,10 @@ class App:
         box=ttk.Combobox(row,textvariable=self.play_engine,values=self.ENGINE_NAMES,state='readonly',width=16)
         box.pack(side='left');box.bind('<<ComboboxSelected>>',self.preview_opponent)
         row=ttk.Frame(frame);row.pack(fill='x',pady=3)
-        ttk.Label(row,text=self.T('Tu color','Your color'),width=22).pack(side='left')
+        ttk.Label(row,text=self.T('Estilo del motor','Engine style'),width=22).pack(side='left')
+        ttk.Combobox(row,textvariable=self.sargon_style,
+                     values=('Tal-Fischer','Tal','Fischer'),state='readonly',width=16).pack(side='left')
+        ttk.Label(row,text=self.T('Tal = agresivo · Fischer = preciso','Tal = aggressive · Fischer = precise')).pack(side='left',padx=8)
         ttk.Combobox(row,textvariable=self.play_color,values=('White','Black'),state='readonly',width=16).pack(side='left')
         row=ttk.Frame(frame);row.pack(fill='x',pady=3)
         ttk.Label(row,text=self.T('Nivel Elo del motor (1–3800)','Engine Elo level (1–3800)'),width=22).pack(side='left')
@@ -3045,6 +3049,8 @@ class App:
             self.personality=player
             self.personality_book=personalities.book_path(player)
             self.personality_launch=True
+            if player['id']=='Tal':self.sargon_style.set('Tal')
+            elif player['id']=='Fischer':self.sargon_style.set('Fischer')
             self.play_color.set(color)
             self.target_elo.set(str(player['elo']))
             dialog.destroy()
@@ -3221,6 +3227,11 @@ class App:
                         option=options['UCI_Elo'];config['UCI_Elo']=max(option.min or 1,min(option.max or 3800,level))
                     elif 'Skill Level' in options:
                         option=options['Skill Level'];config['Skill Level']=max(option.min or 0,min(option.max or 20,round(level/3800*20)))
+                    style=getattr(self,'sargon_style',None)
+                    if style and 'Style' in options:
+                        config['Style']=style.get()
+                        if 'Aggression' in options:
+                            config['Aggression']=90 if style.get()=='Tal' else 40 if style.get()=='Fischer' else 72
                     if config:engine.configure(config)
                 elif isinstance(engine.protocol,chess.engine.XBoardProtocol):
                     engine.protocol.loop.call_soon_threadsafe(engine.protocol.send_line,f'elo {3601 if level>=3600 else effective}')
