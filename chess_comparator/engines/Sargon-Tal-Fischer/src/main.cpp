@@ -191,13 +191,50 @@ public:
         }
         return true;
     }
+    std::string gambit_move(thc::ChessRules root) const {
+        if (style != "Tal") return {};
+        static const char* lines[] = {
+            "e2e4 e7e5 f2f4",
+            "e2e4 e7e5 g1f3 b8c6 f1c4 f8c5 b2b4",
+            "e2e4 e7e5 g1f3 b8c6 d2d4",
+            "e2e4 c7c5 d2d4",
+            "e2e4 d7d5",
+            "d2d4 d7d5 c2c4",
+            "e2e4 e7e5 g1f3 g8f6 f3e5",
+        };
+        for (const char* line : lines) {
+            thc::ChessRules probe; probe.Init();
+            std::istringstream ss(line);
+            std::string token;
+            std::vector<std::string> moves;
+            while (ss >> token) moves.push_back(token);
+            bool match = true;
+            for (size_t i = 0; i + 1 < moves.size() && match; ++i) {
+                thc::Move m;
+                if (!m.TerseIn(&probe, moves[i].c_str()) || !probe.PlayMove(m)) { match = false; break; }
+            }
+            if (!match) continue;
+            if (probe.squares == root.squares && probe.white == root.white) {
+                thc::Move next;
+                if (next.TerseIn(&probe, moves.back().c_str()) && probe.PlayMove(next))
+                    return moves.back();
+            }
+        }
+        return {};
+    }
     std::string book_move(thc::ChessRules root, uint16_t& chosen_weight) {
         chosen_weight = 0;
-        if (!own_book || book.empty()) return {};
+        if (!own_book) return {};
         const int ply = std::max(0, (root.full_move_count - 1) * 2 + (root.white ? 0 : 1));
         if (ply >= book_depth) return {};
         const auto it = book.find(sargon_book::position_key(root));
-        if (it == book.end()) return {};
+        if (it == book.end() || book.empty()) {
+            if (style == "Tal") {
+                std::string g = gambit_move(root);
+                if (!g.empty()) { chosen_weight = 1; return g; }
+            }
+            return {};
+        }
         std::vector<thc::Move> legal;
         root.GenLegalMoveList(legal);
         std::vector<BookMove> candidates;
@@ -209,7 +246,13 @@ public:
             });
             if (is_legal) { candidates.push_back(candidate); total += candidate.weight; }
         }
-        if (candidates.empty()) return {};
+        if (candidates.empty()) {
+            if (style == "Tal") {
+                std::string g = gambit_move(root);
+                if (!g.empty()) { chosen_weight = 1; return g; }
+            }
+            return {};
+        }
         size_t selected = 0;
         if (book_random && total > 0) {
             std::uniform_int_distribution<uint64_t> pick(1, total);
@@ -294,11 +337,27 @@ public:
         thc::ChessEvaluation ev(p);
         int material = 0, positional = 0;
         ev.EvaluateLeaf(material, positional);
-        int score = (material + positional) * 10; // the source evaluator uses tenths of a pawn.
-        score += king_pressure(p, true) - king_pressure(p, false);
+        int score = (material + positional) * 10;
+        int white_attack = king_pressure(p, true);
+        int black_attack = king_pressure(p, false);
+        score += white_attack - black_attack;
         score += imbalance(p);
-        int initiative = style == "Tal" ? 12 : style == "Fischer" ? 4 : 8;
-        score += p.white ? initiative : -initiative;
+        // Tal: reward initiative and forgive some material when attacking.
+        // Fischer: respect material, prefer open files and active pieces.
+        if (style == "Tal") {
+            int attack = std::max(white_attack, black_attack);
+            if (attack > 18) {
+                int discount = std::min(80, attack / 2);
+                if (p.white && white_attack > black_attack) score += discount;
+                else if (!p.white && black_attack > white_attack) score -= discount;
+            }
+            score += p.white ? 16 : -16;
+        } else if (style == "Fischer") {
+            score = score * 11 / 10; // material and structure weigh more
+            score += p.white ? 4 : -4;
+        } else {
+            score += p.white ? 8 : -8;
+        }
         return p.white ? score : -score;
     }
     bool poll_stop() {
