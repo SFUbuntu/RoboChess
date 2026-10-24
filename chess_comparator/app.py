@@ -482,6 +482,7 @@ class App:
         tournament.add_command(label=self.T('Panel del torneo','Tournament panel'),command=self.quad_dialog)
         tournament.add_command(label=self.T('Revisar partidas del torneo…','Review tournament games…'),command=self.show_tournament_review)
         training=tk.Menu(bar,tearoff=0);bar.add_cascade(label=self.T('Entrenamiento','Training'),menu=training)
+        training.add_command(label=self.T('Enciclopedia de aperturas ECO…','ECO opening encyclopedia…'),command=self.eco_dialog)
         training.add_command(label=self.T('Análisis profundo de la partida…','Deep game analysis…'),command=self.deep_analysis_dialog)
         training.add_command(label=self.T('Panel de puzzles…','Puzzle dashboard…'),command=self.puzzle_dashboard)
         training.add_command(label=self.T('Terminar puzzle y volver','End puzzle and return'),command=self.end_puzzle)
