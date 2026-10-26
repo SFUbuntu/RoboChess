@@ -1453,18 +1453,27 @@ class App:
         if self.live_dialog is not None and self.live_dialog.winfo_exists():
             self.live_dialog.deiconify();self.live_dialog.lift();return
         dialog=tk.Toplevel(self.w);self.live_dialog=dialog
-        dialog.title(self.T('Partidas en vivo de Lichess','Lichess live games'));dialog.geometry('840x510');dialog.minsize(680,400);dialog.transient(self.w)
+        dialog.title(self.T('Partidas en vivo de Lichess','Lichess live games'));dialog.geometry('920x560');dialog.minsize(760,420);dialog.transient(self.w)
         frame=ttk.Frame(dialog,padding=12);frame.pack(fill='both',expand=True)
-        ttk.Label(frame,text=self.T('Pega el enlace de una ronda o torneo de Lichess:','Paste a Lichess round or tournament link:')).pack(anchor='w')
-        row=ttk.Frame(frame);row.pack(fill='x',pady=(5,8))
+        header=ttk.Frame(frame);header.pack(fill='x',pady=(0,8))
+        self.live_logo_label=ttk.Label(header)
+        self.live_logo_label.pack(side='right',padx=(8,0))
+        left_header=ttk.Frame(header);left_header.pack(side='left',fill='x',expand=True)
+        ttk.Label(left_header,text=self.T('Pega el enlace de una ronda o torneo de Lichess:','Paste a Lichess round or tournament link:')).pack(anchor='w')
+        row=ttk.Frame(left_header);row.pack(fill='x',pady=(5,0))
         entry=ttk.Entry(row,textvariable=self.live_url);entry.pack(side='left',fill='x',expand=True)
         ttk.Button(row,text=self.T('Conectar','Connect'),command=self.start_live_broadcast).pack(side='left',padx=(6,0))
         ttk.Button(row,text=self.T('Detener','Stop'),command=self.stop_live_broadcast).pack(side='left',padx=(4,0))
+        list_frame=ttk.Frame(frame);list_frame.pack(fill='both',expand=True)
         columns=('white','black','moves','clock','result')
-        self.live_tree=ttk.Treeview(frame,columns=columns,show='headings',height=13,selectmode='browse')
+        self.live_tree=ttk.Treeview(list_frame,columns=columns,show='headings',height=13,selectmode='browse')
         for key,title,width in [('white',self.T('Blancas','White'),200),('black',self.T('Negras','Black'),200),('moves',self.T('Jugadas','Moves'),70),('clock',self.T('Reloj','Clock'),150),('result',self.T('Resultado','Result'),90)]:
             self.live_tree.heading(key,text=title);self.live_tree.column(key,width=width,anchor='w')
-        self.live_tree.pack(fill='both',expand=True);self.live_tree.bind('<Double-1>',lambda event:self.follow_live_game())
+        scroll=ttk.Scrollbar(list_frame,orient='vertical',command=self.live_tree.yview)
+        self.live_tree.configure(yscrollcommand=scroll.set)
+        self.live_tree.pack(side='left',fill='both',expand=True)
+        scroll.pack(side='right',fill='y')
+        self.live_tree.bind('<Double-1>',lambda event:self.follow_live_game())
         controls=ttk.Frame(frame);controls.pack(fill='x',pady=(8,3))
         ttk.Button(controls,text=self.T('Seguir partida seleccionada','Follow selected game'),command=self.follow_live_game).pack(side='left')
         ttk.Button(controls,text=self.T('Analizar con motor seleccionado','Analyze with selected engine'),command=lambda:self.analyze(selected_only=True)).pack(side='left',padx=5)
@@ -1505,6 +1514,33 @@ class App:
         stop_event=threading.Event();self.live_stop_event=stop_event
         self.live_status.set(self.T('Conectando y cargando partidas…','Connecting and loading games…'))
         threading.Thread(target=self.live_broadcast_worker,args=(token,kind,identifier,stop_event),daemon=True).start()
+        threading.Thread(target=self.load_live_logo,args=(self.live_url.get(),),daemon=True).start()
+    def load_live_logo(self,url):
+        try:
+            value=url.strip()
+            if value.lower().startswith(('lichess.org/','www.lichess.org/')):value='https://'+value
+            parsed=urllib.parse.urlparse(value)
+            api='https://lichess.org/api'+parsed.path
+            request=urllib.request.Request(api,headers={'Accept':'application/json','User-Agent':'RoboChess/Live'})
+            with urllib.request.urlopen(request,timeout=15) as response:
+                data=json.loads(response.read().decode('utf-8'))
+            image_url=(data.get('tour') or {}).get('image')
+            if not image_url:return
+            with urllib.request.urlopen(urllib.request.Request(image_url,headers={'User-Agent':'RoboChess/Live'}),timeout=15) as response:
+                raw=response.read()
+            from PIL import Image
+            import io as _io
+            image=Image.open(_io.BytesIO(raw)).convert('RGBA')
+            image.thumbnail((220,110))
+            buffer=_io.BytesIO();image.save(buffer,'PNG')
+            photo=tk.PhotoImage(data=buffer.getvalue())
+            def show():
+                if self.live_dialog is not None and self.live_dialog.winfo_exists():
+                    self.live_logo_image=photo
+                    self.live_logo_label.configure(image=photo)
+            self.w.after(0,show)
+        except Exception:
+            pass
     def live_broadcast_worker(self,token,kind,identifier,stop_event):
         endpoint=(f'https://lichess.org/api/broadcast/{identifier}.pgn' if kind=='tour'
                   else f'https://lichess.org/api/broadcast/round/{identifier}.pgn')
