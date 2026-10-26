@@ -1460,9 +1460,9 @@ class App:
         entry=ttk.Entry(row,textvariable=self.live_url);entry.pack(side='left',fill='x',expand=True)
         ttk.Button(row,text=self.T('Conectar','Connect'),command=self.start_live_broadcast).pack(side='left',padx=(6,0))
         ttk.Button(row,text=self.T('Detener','Stop'),command=self.stop_live_broadcast).pack(side='left',padx=(4,0))
-        columns=('white','black','moves','result')
+        columns=('white','black','moves','clock','result')
         self.live_tree=ttk.Treeview(frame,columns=columns,show='headings',height=13,selectmode='browse')
-        for key,title,width in [('white',self.T('Blancas','White'),220),('black',self.T('Negras','Black'),220),('moves',self.T('Jugadas','Moves'),80),('result',self.T('Resultado','Result'),100)]:
+        for key,title,width in [('white',self.T('Blancas','White'),200),('black',self.T('Negras','Black'),200),('moves',self.T('Jugadas','Moves'),70),('clock',self.T('Reloj','Clock'),150),('result',self.T('Resultado','Result'),90)]:
             self.live_tree.heading(key,text=title);self.live_tree.column(key,width=width,anchor='w')
         self.live_tree.pack(fill='both',expand=True);self.live_tree.bind('<Double-1>',lambda event:self.follow_live_game())
         controls=ttk.Frame(frame);controls.pack(fill='x',pady=(8,3))
@@ -1472,7 +1472,7 @@ class App:
         ttk.Label(frame,textvariable=self.live_status,wraplength=800).pack(anchor='w',pady=(3,0))
         dialog.protocol('WM_DELETE_WINDOW',self.close_live_broadcast_dialog)
         entry.focus_set()
-        if self.live_round_id:self.live_status.set(self.T('Ronda conectada; actualizando las partidas cada 8 segundos.','Round connected; refreshing games every 8 seconds.'))
+        if self.live_round_id:self.live_status.set(self.T('Ronda conectada; actualizando las partidas cada 4 segundos.','Round connected; refreshing games every 4 seconds.'))
     @staticmethod
     def parse_live_broadcast_source(raw):
         value=raw.strip()
@@ -1524,7 +1524,26 @@ class App:
                 self.live_events.put((token,[],message))
                 if 400<=err.code<500 and err.code!=429:break
             except Exception as err:self.live_events.put((token,[],str(err)))
-            if stop_event.wait(8):break
+            if stop_event.wait(4):break
+    @staticmethod
+    def live_clocks(game):
+        """Return (white_clk, black_clk) strings from the last [%clk] comments."""
+        import re
+        clk=re.compile(r'\[%clk\s+([0-9:.]+)\]')
+        white=black=None
+        node=game
+        while node.variations:
+            node=node.variations[0]
+            match=clk.search(node.comment or '')
+            if match:
+                if node.board().turn==chess.BLACK:white=match.group(1)
+                else:black=match.group(1)
+        return white,black
+    @staticmethod
+    def format_live_clock(white,black):
+        w=white or '—'
+        b=black or '—'
+        return f'{w} · {b}'
     @staticmethod
     def live_game_key(game):
         headers=game.headers
@@ -1543,9 +1562,15 @@ class App:
         self.live_follow_result=game.headers.get('Result','*')
         self.load_review_game(game)
         headers=game.headers
-        message=self.T(f"En vivo · {headers.get('White','?')} – {headers.get('Black','?')} · {plies} jugadas · actualiza cada 8 s",
-                       f"Live · {headers.get('White','?')} – {headers.get('Black','?')} · {plies} plies · refreshes every 8 s")
+        white_clk,black_clk=self.live_clocks(game)
+        clock_text=self.format_live_clock(white_clk,black_clk)
+        finished=headers.get('Result','*')!='*'
+        clock_label=self.T('tiempo final','final time') if finished else self.T('tiempo restante','time left')
+        message=self.T(f"En vivo · {headers.get('White','?')} – {headers.get('Black','?')} · {plies} jugadas · {clock_label} {clock_text}",
+                       f"Live · {headers.get('White','?')} – {headers.get('Black','?')} · {plies} plies · {clock_label} {clock_text}")
         self.status.set(message)
+        if hasattr(self,'clock_label') and not self.playing:
+            self.clock_label.set(self.T(f'Reloj: {clock_text}','Clock: '+clock_text))
         if auto_analyze and self.live_auto_analyze.get() and (old_plies<0 or plies>old_plies) and headers.get('Result','*')=='*':
             self.w.after(150,lambda:self.analyze(selected_only=True))
     def poll_live_broadcast(self):
@@ -1563,7 +1588,8 @@ class App:
                         h=game.headers;plies=sum(1 for _ in game.mainline_moves())
                         key=self.live_game_key(game)
                         if key==previous_key:followed_index=index
-                        self.live_tree.insert('','end',iid=str(index),values=(h.get('White','?'),h.get('Black','?'),plies,h.get('Result','*')))
+                        white_clk,black_clk=self.live_clocks(game)
+                        self.live_tree.insert('','end',iid=str(index),values=(h.get('White','?'),h.get('Black','?'),plies,self.format_live_clock(white_clk,black_clk),h.get('Result','*')))
                     if followed_index is not None:
                         iid=str(followed_index);self.live_tree.selection_set(iid);self.live_tree.see(iid)
                         game=games[followed_index]
