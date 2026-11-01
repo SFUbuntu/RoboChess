@@ -4,9 +4,15 @@ Instrucciones en español. English: [README.md](README.md).
 
 Programa de estudio y entrenamiento de ajedrez para Windows. Tablero, motores UCI, libro de aperturas, puzzles, perfiles, torneo local contra la computadora y sonidos de partida.
 
-Esta carpeta es el programa completo: código, piezas, puzzles de Lucas Chess, libro Polyglot, tablas Gaviota y el motor Crafty. No hace falta bajar otra cosa para abrirlo, salvo Python y, si quieres el motor fuerte, Stockfish.
+Esta carpeta es el programa completo: código, piezas, puzzles de Lucas Chess, libro Polyglot, tablas Gaviota y el motor Crafty. El instalador de Windows incluye Python y las bibliotecas necesarias. Python solo hace falta para ejecutar o compilar desde el código fuente. Stockfish es opcional y se descarga aparte.
 
-## Qué necesitas
+## Instalar en Windows
+
+Entra en [Releases](https://github.com/SFUbuntu/RoboChess/releases) y descarga `RoboChess-Instalador-Windows-x64.exe` cuando esté publicada la versión para Windows. Abre el instalador en Windows 10 u 11 de 64 bits. No necesitas instalar Python por separado.
+
+Se instala para tu usuario, incluye desinstalador y acceso en Inicio, y permite crear un acceso directo en el escritorio. El instalador no tiene firma digital. Los perfiles se conservan después de desinstalar.
+
+## Qué necesitas para ejecutar desde el código fuente
 
 - Windows 10 o 11
 - Python 3.10 o más nuevo, desde [python.org](https://www.python.org/downloads/)
@@ -25,13 +31,19 @@ py -3 -m pip install zstandard
 2. Doble clic en `INICIAR.bat`.
 3. Si falta un motor, el programa avisa y deja la ventana abierta.
 
-La primera vez elige el ejecutable de cada motor con los botones de la barra (Stockfish, Crafty, RoboChess). Crafty ya viene como `crafty.exe`. RoboChess de 32 bits viene en `robbochess\RoboChess.exe`. Stockfish no se incluye: bájalo de [stockfishchess.org](https://stockfishchess.org/download/) y señala `stockfish.exe`.
+La primera vez elige el ejecutable de cada motor con los botones de la barra (Stockfish, Crafty, RoboChess). Crafty ya viene como `crafty.exe`. La aplicación prefiere `robbochess\RoboChess-x64.exe`, que ya viene compilado; se conserva el motor original de 32 bits. También se incluye `engines\Sargon-Tal-Fischer\Sargon-Tal-Fischer-x64.exe`, que puedes seleccionar desde **Motores → Añadir motor UCI**. Stockfish no se incluye: bájalo de [stockfishchess.org](https://stockfishchess.org/download/) y señala `stockfish.exe`.
 
-## Cómo crear el ejecutable
+## Cómo crear el ejecutable y el instalador
 
-Dentro de `chess_comparator`, doble clic en `COMPILAR-EXE.bat`.
+Con Python 3.12 x64 e Inno Setup instalados, abre PowerShell en la raíz del repositorio y ejecuta:
 
-Genera `dist\RoboChess\RoboChess.exe`. Copia **toda** la carpeta `dist\RoboChess` a otro PC. El `.exe` solo no arranca: necesita los assets y los motores que van a su lado.
+```powershell
+.\COMPILAR-INSTALADOR.ps1
+```
+
+Genera `dist\RoboChess\RoboChess.exe` y `outputs\RoboChess-Instalador-Windows-x64.exe`. Para usar la versión portable, copia **toda** la carpeta `dist\RoboChess`, incluida `_internal`.
+
+Consulta [README-WINDOWS.md](README-WINDOWS.md) para los detalles de compilación y [WINDOWS-VALIDATION.md](WINDOWS-VALIDATION.md) para las pruebas realizadas.
 
 ## Cómo se juega
 
@@ -79,7 +91,7 @@ Los perfiles se guardan en la carpeta del usuario, no dentro del repositorio.
 
 ## Motores y libros
 
-- Crafty y RoboChess vienen con el proyecto.
+- Crafty, RoboChess x64 y el motor experimental Sargon Tal–Fischer vienen con el proyecto.
 - Stockfish se elige aparte. El nivel Elo de la partida limita la fuerza del motor; no cambia el Elo de Stockfish en su archivo.
 - El libro de aperturas es Polyglot (`.bin`). Un libro ChessBase (`.ctg`) no se abre aquí. Hay que convertirlo a `.bin` y elegirlo en Tutor / Resources.
 - Bases PGN: Archivo → Importar base PGN. Un archivo de miles de partidas va bien. Una base de millones puede congelar la ventana porque se carga entera en memoria.

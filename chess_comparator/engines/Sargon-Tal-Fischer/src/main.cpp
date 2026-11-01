@@ -211,12 +211,13 @@ public:
             bool match = true;
             for (size_t i = 0; i + 1 < moves.size() && match; ++i) {
                 thc::Move m;
-                if (!m.TerseIn(&probe, moves[i].c_str()) || !probe.PlayMove(m)) { match = false; break; }
+                if (!m.TerseIn(&probe, moves[i].c_str())) { match = false; break; }
+                probe.PlayMove(m);
             }
             if (!match) continue;
-            if (probe.squares == root.squares && probe.white == root.white) {
+            if (std::equal(std::begin(probe.squares), std::end(probe.squares), std::begin(root.squares)) && probe.white == root.white) {
                 thc::Move next;
-                if (next.TerseIn(&probe, moves.back().c_str()) && probe.PlayMove(next))
+                if (next.TerseIn(&probe, moves.back().c_str()))
                     return moves.back();
             }
         }

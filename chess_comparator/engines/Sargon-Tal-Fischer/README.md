@@ -14,6 +14,12 @@ Motor experimental para RoboChess, creado como una reinterpretación moderna e i
 - Libro de aperturas binario de Sargon. El archivo incluido se genera desde las 3,258 partidas PGN de Tal y Fischer y cubre los primeros 24 plies. Sargon verifica que la jugada del libro sea legal y, si una posición no aparece, continúa su búsqueda normal.
 - Evaluación base y reglas de ajedrez proceden de THC (`thc.h`/`thc.cpp`), una biblioteca publicada por Bill Forster bajo licencia MIT. Se corrigió una copia fuera de límites en la inicialización de su tabla de final. El texto de licencia está en `LICENSE-THC.txt`.
 
+## Ejecutables incluidos para Windows x64
+
+Se incluyen `Sargon-Tal-Fischer-x64.exe` y `SargonBookBuilder.exe`, compilados con MSVC y runtime estático. Se corrigieron dos condiciones que trataban `PlayMove` (retorno void) como booleano y la comparación de casillas del libro de gambitos.
+
+El motor pasó `tests/uci_smoke.py`: protocolo UCI, Hash, límite de profundidad, mate en una, captura táctica y libro de aperturas. Sigue siendo un motor experimental; estas pruebas no miden su Elo.
+
 ## Compilar en Windows x64
 
 1. Instala Visual Studio con el componente **Desktop development with C++**.

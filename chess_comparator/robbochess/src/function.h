@@ -71,6 +71,8 @@ void do_black( uint32 );
 void cancel_black( uint32 );
 
 void initialization_value();
+#ifndef ROBOCHESS_TYPE_NEXT_DEFINED
+#define ROBOCHESS_TYPE_NEXT_DEFINED
 typedef struct
     {
     int phase, celare, cb;
@@ -79,6 +81,7 @@ typedef struct
     type_list_move LIST[256];
     uint32 capture_bad[64];
     } type_next;
+#endif
 uint32 next_white( type_next * );
 uint32 next_black( type_next * );
 

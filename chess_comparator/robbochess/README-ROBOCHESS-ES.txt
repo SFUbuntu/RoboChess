@@ -6,11 +6,11 @@ RoboChess.exe, con sus dos cadenas fijas de identificación cambiadas para que
 el banner y UCI digan "RoboChess 0.085g3 w32". El ejecutable original sin
 modificar se conserva en upstream. El binario activo es PE32 para Intel 80386 y
 usa las DLL habituales de Windows KERNEL32 y WINMM. La comprobación fue estática;
-no se pudo ejecutar aquí en Windows.
+el ejecutable antiguo no arrancó en el entorno Windows de validación. Se conserva por compatibilidad; la aplicación prefiere la nueva compilación x64.
 
 USO
 Abre Nibbler con py app.py. En la carpeta incluida, la app busca primero
-RoboChess-x64.exe (si se construyó) y después RoboChess.exe. También puedes
+RoboChess-x64.exe (incluido) y después RoboChess.exe. También puedes
 elegir el motor con el botón RoboChess… El ejecutable x86 del RAR anuncia su
 nombre antiguo; la interfaz lo presenta como RoboChess. Tanto el ejecutable incluido como el x64 compilado anuncian RoboChess en la
 consola inicial y mediante UCI.
@@ -29,8 +29,7 @@ anunciar el nombre RoboChess. Se conserva la corrección de 64 bits en zobrist.c
 que aparece en ese fuente. Se añadió el encabezado search.h que faltaba en el
 archivo recibido y MultiPV real de hasta cinco variantes: el motor ejecuta una
 búsqueda por alternativa, excluye las primeras jugadas ya elegidas y divide el
-tiempo disponible entre las líneas. Nibbler pide tres. Este entorno no dispone de MSVC; no se afirma que la versión x64 haya sido
-compilada ni probada.
+tiempo disponible entre las líneas. Nibbler pide tres. La versión x64 incluida se compiló con MSVC y runtime estático. Pasó las pruebas de comunicación UCI, generación de una jugada legal y análisis MultiPV con tres variantes legales. Se corrigieron la inclusión repetida de type_next y la consulta de stdin para el UCRT actual. Estas pruebas no constituyen una medición de fuerza.
 
 FUERZA Y OPCIONES
 El motor histórico de 2009 ofrece Hash, Ponder y búsquedas UCI por profundidad.

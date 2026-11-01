@@ -47,6 +47,7 @@ void history_reset()
 
 int main()
     {
+    setvbuf(stdin, NULL, _IONBF, 0);
     show_version();
     pawn_zobrist_initialization();
     initialization_zobrist(128);

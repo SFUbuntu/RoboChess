@@ -198,9 +198,6 @@ bool question_input()
     static HANDLE stdin_h;
     DWORD val;
 
-    if( stdin->_cnt > 0 )
-        return 1;
-
     if( !init )
         {
         init = 1;

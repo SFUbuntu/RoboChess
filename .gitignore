@@ -8,3 +8,16 @@ dist/
 venv/
 *.pgn
 profiles/
+
+# Windows installer build outputs
+/.build-venv/
+/pyinstaller-build/
+/sargon-build/
+/robbo-build/
+/outputs/
+/build-deps/
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.lib
